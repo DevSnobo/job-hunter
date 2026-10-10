@@ -1,0 +1,36 @@
+[project]
+name = "cv-generator"
+version = "0.1.0"
+description = "Local, data-driven CV generator (ReportLab PDF) with pluggable templates"
+readme = "README.txt"
+requires-python = ">=3.11"
+dependencies = [
+    "reportlab>=4.2,<6",
+    "pydantic>=2.7,<3",
+    "pillow>=10.3,<13",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8,<10",
+    "pypdf>=4,<7",
+]
+
+[project.scripts]
+cvgen = "cv_generator.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cv_generator"]
+
+# The shipped templates are resources, not importable modules: an installed
+# wheel must still carry them (``cv_generator.paths`` looks next to the package
+# when it is not running from a source checkout).
+[tool.hatch.build.targets.wheel.force-include]
+"templates" = "cv_generator/templates"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,20 @@
+# Private runtime and personal data - never commit.
+# These directories hold the owner's real applications, profile, database,
+# exports and generated state; they are personal data, not source.
+/applications/
+/profile/
+/data/
+/exports/
+/state/
+/config/*.toml
+!/config/*.toml.example
+
+# Python / tooling
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Editors / OS
+.DS_Store

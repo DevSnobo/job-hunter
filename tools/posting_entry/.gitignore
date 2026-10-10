@@ -1,0 +1,4 @@
+# Local environment and caches of this small tool.
+.venv/
+__pycache__/
+*.py[cod]

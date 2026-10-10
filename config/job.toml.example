@@ -1,0 +1,43 @@
+# Configuration for the `job` tracker (job-cli).
+#
+# This file is the committed example `config/job.toml.example`; the real file is
+# the private `config/job.toml`, which is never committed and ships with the
+# same values. Every key is optional: without a config file the tool runs
+# with exactly the values below.
+#
+# Precedence for every value: command-line flag -> environment variable ->
+# this file -> built-in default.
+#
+# Location: `$JOB_CONFIG` when it is set, else `<job root>/config/job.toml`.
+# The `job` CLI deliberately has no `--config` flag; the environment variable
+# plus the default path are enough. A missing config file is normal and silent.
+# An unreadable or invalid config file is a usage error (exit 2) that names the
+# file and the problem - there is no silent fallback. Unknown keys are ignored.
+#
+# All keys are top level: they belong to no [section].
+#
+# Paths: a relative path is resolved against the job root (the directory that
+# holds `sql/migrations`), an absolute path is used as given. The defaults
+# below are relative to that same root, so the file changes nothing.
+
+# SQLite database file. Flag: --db, environment: JOB_DB.
+# Built-in default: <job root>/data/job.sqlite3
+db = "data/job.sqlite3"
+
+# Directory that holds the application folders and the intake folders.
+# Built-in default: <job root>/applications
+applications_dir = "applications"
+
+# Directory that receives generated snapshots and exports.
+# Built-in default: <job root>/exports
+exports_dir = "exports"
+
+# Directory for the database backups written before a migration or a restore.
+# Built-in default: <job root>/data/backups
+backups_dir = "data/backups"
+
+# Reserved: the language the tracker assumes for generated CVs. It is loaded
+# and exposed on the layout, but no command consumes it yet - no output depends
+# on it.
+# Built-in default: "de"
+default_language = "de"

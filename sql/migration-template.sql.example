@@ -1,0 +1,16 @@
+-- COPY to migrations/003_descriptive_name.sql; replace all placeholders.
+-- Never edit a migration after it has been applied to a real database.
+-- Back up first. Each migration owns its transaction; do not wrap again in tooling.
+PRAGMA foreign_keys = ON;
+BEGIN IMMEDIATE;
+
+-- Add your DDL/DML here. Simple example:
+-- ALTER TABLE applications ADD COLUMN employment_type TEXT;
+-- DROP VIEW ...; CREATE VIEW ...; when changing a view.
+-- SQLite supports only limited ALTER TABLE operations. Table rebuilds require
+-- a reviewed migration, explicit column lists, preserved indexes/triggers/FKs,
+-- and PRAGMA foreign_key_check before committing. Do not improvise them here.
+
+INSERT INTO schema_migrations(version, name) VALUES (3, 'descriptive_name');
+PRAGMA user_version = 3;
+COMMIT;

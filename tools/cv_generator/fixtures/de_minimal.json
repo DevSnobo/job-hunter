@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "language": "de",
+  "first_name": "Ada",
+  "last_name": "Lovelace",
+  "headline": "Software Developer",
+  "photo": "placeholder_photo.jpg",
+  "contacts": [
+    {
+      "kind": "birthday",
+      "lines": [
+        "10.12.1815 in London"
+      ]
+    },
+    {
+      "kind": "email",
+      "lines": [
+        "ada@example.com"
+      ]
+    },
+    {
+      "kind": "phone",
+      "lines": [
+        "+44 7700 900123"
+      ]
+    },
+    {
+      "kind": "address",
+      "lines": [
+        "Rechenwerkstraße 12",
+        "14467 Potsdam"
+      ]
+    }
+  ],
+  "languages": [
+    {
+      "name": "Deutsch",
+      "level": "Muttersprache"
+    },
+    {
+      "name": "Englisch",
+      "level": "Fließend (C1)"
+    },
+    {
+      "name": "Japanisch",
+      "level": "Gute Grundkenntnisse"
+    },
+    {
+      "name": "Französisch",
+      "level": "Grundkenntnisse"
+    }
+  ],
+  "skills": [
+    {
+      "label": "Sprachen & Frameworks:",
+      "segments": [
+        {
+          "text": "Java",
+          "bold": true
+        },
+        {
+          "text": ", JakartaEE, Guice",
+          "bold": false
+        }
+      ]
+    },
+    {
+      "label": "Build & Tools:",
+      "segments": [
+        {
+          "text": "Git, Maven",
+          "bold": true
+        },
+        {
+          "text": ", IntelliJ, Eclipse, Shell, Linux",
+          "bold": false
+        }
+      ]
+    },
+    {
+      "label": "Testing & Qualität:",
+      "segments": [
+        {
+          "text": "JUnit 4/5",
+          "bold": true
+        },
+        {
+          "text": ", SonarQube",
+          "bold": false
+        }
+      ]
+    },
+    {
+      "label": "DevOps & Deployment:",
+      "segments": [
+        {
+          "text": "Docker",
+          "bold": true
+        },
+        {
+          "text": ", Docker Compose, Bitbucket Pipelines, Sonatype Nexus",
+          "bold": false
+        }
+      ]
+    },
+    {
+      "label": "Methoden:",
+      "segments": [
+        {
+          "text": "Scrum",
+          "bold": true
+        },
+        {
+          "text": ", Agile, Jira",
+          "bold": false
+        }
+      ]
+    },
+    {
+      "label": "Soft Skills:",
+      "segments": [
+        {
+          "text": "Mentoring, analytisches & objektorientiertes Denken",
+          "bold": true
+        }
+      ]
+    }
+  ],
+  "experience": [
+    {
+      "role": "Software Developer Backend",
+      "meta": "Analytical Engines, Berlin | 09.2022 - heute",
+      "bullets": [
+        "Wartung, Weiter- und Neuentwicklung von Features einer EAI Software, Anbindung von Drittsystemen (ESB)",
+        "Entwurf und Implementierung von Mini-Frameworks als Teil eines wachsenden SDK für die EAI Software; intern genutzt und verfügbar für SDK Nutzer",
+        "Optimierung des Maven Builds durch Erzeugung geeigneter Schnittstellen"
+      ]
+    },
+    {
+      "role": "Bachelor Thesis — Software Developer Backend",
+      "meta": "Analytical Engines, Berlin | 03.2022 – 08.2022",
+      "bullets": [
+        "Evaluation Hexagonale Architektur an monolithischer Anwendung zur Implementierung von entkoppelten Plugins"
+      ]
+    },
+    {
+      "role": "Werkstudent — Software Developer Backend / Quality Assurance",
+      "meta": "Analytical Engines, Berlin | 07.2018 - 02.2022 / 06.2017 – 06.2018",
+      "bullets": [
+        "Erweiterung des SDK der EAI Software",
+        "Anbindung neuer Drittsysteme in EAI Software"
+      ]
+    }
+  ],
+  "education": [
+    {
+      "title": "Universität Potsdam | Bachelor of Science - Informatik",
+      "dates": "2017 – 2022"
+    }
+  ],
+  "certificates": [],
+  "signature": null
+}

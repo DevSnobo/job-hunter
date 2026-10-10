@@ -1,0 +1,38 @@
+# Configuration for the `posting` capture tool (posting-entry).
+#
+# This file is the committed example `config/posting.toml.example`; the real file
+# is the private `config/posting.toml`, which is never committed and ships with
+# the same values. Every key is optional: without a config file the tool runs
+# with exactly the values below.
+#
+# Precedence for every value: command-line flag -> environment variable ->
+# this file -> built-in default.
+#
+# Location: `$POSTING_CONFIG` when it is set, else `<job root>/config/posting.toml`.
+# The capture flow has no `--config` flag; the environment variable plus the
+# default path are enough. A missing config file is normal and silent. An
+# unreadable or invalid config file is a usage error (exit 2) that names the
+# file and the problem - there is no silent fallback. Unknown keys are ignored.
+#
+# All keys are top level: they belong to no [section].
+#
+# Paths: a relative path is resolved against the job root (the directory that
+# holds `sql/migrations` or `bin/cv`), an absolute path is used as given. The
+# default below is relative to that same root, so the file changes nothing.
+
+# Directory that receives the captured postings: each saved entry becomes
+# `<applications_dir>/<company>[_<posting-id>]/posting.txt` plus `source.txt`.
+# Flag: --root, environment: JOB_ROOT (used as `<JOB_ROOT>/applications`).
+# Built-in default: <job root>/applications
+applications_dir = "applications"
+
+# Offer to generate the tailored DE and EN CVs after a saved posting, in a real
+# interactive session only. Flag: --no-cv, which always wins over this key.
+# Built-in default: true
+offer_cv = true
+
+# Read the posting text from the clipboard first when neither --text-file nor
+# --clipboard was given, and fall back to pasting with the usual warning when
+# the clipboard cannot be read.
+# Built-in default: false
+default_source_from_clipboard = false

@@ -1,0 +1,29 @@
+Backend Engineer (Java) - Example Analytics GmbH
+
+We are Example Analytics, a small product team in Berlin. We build a reporting
+platform that our customers use every day, and we are looking for a backend
+engineer who likes to own a feature from the first sketch to production.
+
+Your tasks:
+
+- Design and implement services in Java and Spring Boot.
+- Model and query relational data; keep the schema honest and migrations boring.
+- Write automated tests and keep the build fast and reproducible.
+- Review code, improve our pipelines, and help the team ship small steps.
+- Talk to support and customers to understand what the numbers mean.
+
+What we look for:
+
+- Solid Java and SQL experience, ideally with Spring Boot.
+- Interest in clean architecture and in testing as a design tool.
+- Docker and CI experience; Linux on the command line is normal for us.
+- Good German and English, written and spoken.
+
+What we offer:
+
+- A permanent contract, 30 days of holiday, flexible hours.
+- A small team where decisions are still short.
+- A hardware budget of your choice.
+
+This posting is invented for the public job-hunter example. It contains no real
+company, no real vacancy and no real contact address.

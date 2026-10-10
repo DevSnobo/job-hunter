@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+# Launcher for the interactive batch CV tool (`./cv`).
+#
+# Resolves the repository root from its own path - also when it is reached
+# through the root convenience ./cv (a symlink to this file) - and forwards all
+# arguments and the exit code to the uv workspace member tools/cv_batch.
+
+set -eu
+
+self=$0
+while [ -h "$self" ]; do
+    link=$(readlink "$self")
+    case $link in
+        /*) self=$link ;;
+        *) self=$(dirname "$self")/$link ;;
+    esac
+done
+root=$(cd -- "$(dirname -- "$self")/.." && pwd)
+
+if ! command -v uv >/dev/null 2>&1; then
+    echo "cv: uv is not installed or not on PATH (see https://docs.astral.sh/uv/)" >&2
+    exit 127
+fi
+
+CV_JOB_ROOT=$root
+export CV_JOB_ROOT
+exec uv run --quiet --project "$root" --package cv-batch cv "$@"

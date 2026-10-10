@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "language": "en",
+  "first_name": "Ada",
+  "last_name": "Lovelace",
+  "headline": "Software Developer",
+  "photo": "placeholder_photo.jpg",
+  "contacts": [
+    {
+      "kind": "birthday",
+      "lines": [
+        "10.12.1815 in London"
+      ]
+    },
+    {
+      "kind": "email",
+      "lines": [
+        "ada@example.com"
+      ]
+    },
+    {
+      "kind": "phone",
+      "lines": [
+        "+44 7700 900123"
+      ]
+    },
+    {
+      "kind": "address",
+      "lines": [
+        "Rechenwerkstraße 12",
+        "14467 Potsdam"
+      ]
+    }
+  ],
+  "languages": [
+    {
+      "name": "German",
+      "level": "Native"
+    },
+    {
+      "name": "English",
+      "level": "Proficient (C1)"
+    },
+    {
+      "name": "Japanese",
+      "level": "Intermediate"
+    },
+    {
+      "name": "French",
+      "level": "Basic"
+    }
+  ],
+  "skills": [
+    {
+      "label": "Languages & Frameworks:",
+      "segments": [
+        {
+          "text": "Java 8/11",
+          "bold": true
+        },
+        {
+          "text": ", JakartaEE, Guice",
+          "bold": false
+        }
+      ]
+    },
+    {
+      "label": "Build & Tools:",
+      "segments": [
+        {
+          "text": "Git, Maven",
+          "bold": true
+        },
+        {
+          "text": ", IntelliJ, Eclipse, Shell, Linux",
+          "bold": false
+        }
+      ]
+    },
+    {
+      "label": "Testing & Quality:",
+      "segments": [
+        {
+          "text": "JUnit 4/5",
+          "bold": true
+        },
+        {
+          "text": ", SonarQube",
+          "bold": false
+        }
+      ]
+    },
+    {
+      "label": "DevOps & Deployment:",
+      "segments": [
+        {
+          "text": "Docker",
+          "bold": true
+        },
+        {
+          "text": ", Docker Compose, Bitbucket Pipelines, Sonatype Nexus",
+          "bold": false
+        }
+      ]
+    },
+    {
+      "label": "Methods:",
+      "segments": [
+        {
+          "text": "Scrum",
+          "bold": true
+        },
+        {
+          "text": ", Agile, Jira",
+          "bold": false
+        }
+      ]
+    },
+    {
+      "label": "Soft Skills:",
+      "segments": [
+        {
+          "text": "Mentoring, analytical & objectoriented thinking",
+          "bold": true
+        }
+      ]
+    }
+  ],
+  "experience": [
+    {
+      "role": "Software Developer Backend",
+      "meta": "Analytical Engines, Berlin | 09.2022 - present",
+      "bullets": [
+        "Maintenance, further development and new implementation of features for an EAI software solution; integration of third-party systems (ESB)",
+        "Designed and implemented reusable internal mini-frameworks as part of an evolving SDK for the EAI platform, used internally and made available for SDK users",
+        "Optimization of Maven builds by introducing suitable interfaces",
+        "Refactored from a monolithic structure to a plugin-based architecture supporting independently deployable and pluggable modules",
+        "Maintenance, customisation and enhancement of Maven builds through the use of existing and custom-implemented Maven plugins",
+        "Maintenance and improvement of build pipelines",
+        "Deployment management in WildFly Application Server"
+      ]
+    },
+    {
+      "role": "Bachelor Thesis — Software Developer Backend",
+      "meta": "Analytical Engines, Berlin | 03.2022 – 08.2022",
+      "bullets": [
+        "Evaluation of hexagonal architecture in a monolithic application to implement decoupled plugins"
+      ]
+    },
+    {
+      "role": "Working student — Software Developer Backend / Quality Assurance",
+      "meta": "Analytical Engines, Berlin | 07.2018 - 02.2022 / 06.2017 – 06.2018",
+      "bullets": [
+        "Extension of the SDK for the EAI software",
+        "Integration of new third-party systems into the EAI software",
+        "Execution of manual tests and automation of UI tests using Selenium"
+      ]
+    }
+  ],
+  "education": [
+    {
+      "title": "University of Example | Bachelor of Science - Computer Science",
+      "dates": null
+    }
+  ],
+  "certificates": [
+    {
+      "title": "Certified Professional for Software Architecture - Foundation Level"
+    }
+  ],
+  "signature": {
+    "place_date": "London, 10.05.2025",
+    "name": "Ada Lovelace"
+  }
+}

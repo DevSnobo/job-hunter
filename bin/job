@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+# Launcher for the job tracker (`./job`).
+#
+# Resolves the repository root from its own path - also when it is reached
+# through the root convenience ./job (a symlink to this file) - and forwards all
+# arguments and the exit code to the uv workspace member tools/job_cli.
+
+set -eu
+
+self=$0
+while [ -h "$self" ]; do
+    link=$(readlink "$self")
+    case $link in
+        /*) self=$link ;;
+        *) self=$(dirname "$self")/$link ;;
+    esac
+done
+root=$(cd -- "$(dirname -- "$self")/.." && pwd)
+
+if ! command -v uv >/dev/null 2>&1; then
+    echo "job: uv is not installed or not on PATH (see https://docs.astral.sh/uv/)" >&2
+    exit 127
+fi
+
+JOB_ROOT=$root
+export JOB_ROOT
+exec uv run --quiet --project "$root" --package job-cli job "$@"

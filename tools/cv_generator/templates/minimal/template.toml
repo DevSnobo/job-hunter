@@ -1,0 +1,51 @@
+# minimal - the smallest complete template, meant to be copied.
+#
+# It draws a plain single-column A4 CV: no sidebar, no photo, no icons.  Use it
+# as the starting point for your own template: copy the directory into one of
+# your `template_dirs` (see cvgen.toml), give it a unique `name` here, and
+# change the values below.  `layout.py` shows the three things the contract
+# asks for.
+name = "minimal"
+description = "Plain single-column A4 CV, no sidebar and no photo (copy me)"
+
+[page]
+# Page size in PDF points (A4 = 595 x 842).
+width = 595.0
+height = 842.0
+
+[palette]
+rule = "#BBBBBB"      # the thin rule under a section heading
+heading = "#000000"   # section headings and the name
+body = "#333333"      # body text, bullets, dates
+muted = "#666666"     # headline and contact lines
+
+[fonts]
+# PDF base-14 font names, so nothing has to be embedded.
+regular = "Helvetica"
+bold = "Helvetica-Bold"
+
+[geometry]
+# Margins in points, measured from the page edges.
+margin_top = 54.0
+margin_bottom = 54.0
+margin_left = 60.0
+margin_right = 60.0
+bullet_indent = 14.0   # bullet glyph offset from the left margin
+bullet_text_indent = 26.0
+rule_gap = 4.0         # heading baseline -> rule
+heading_gap = 18.0     # rule -> first content line
+section_gap = 20.0     # last content line -> next section heading
+entry_gap = 10.0       # last bullet line -> next entry
+signature_gap = 18.0   # content -> a right-aligned signature
+
+[typography]
+name_size = 22.0
+headline_size = 11.0
+heading_size = 12.0
+body_size = 10.0
+leading = 13.0
+
+[limits]
+# 0 = no limit (the geometry decides); set a number to fail early instead.
+max_bullets_per_entry = 0
+max_bullets_total = 0

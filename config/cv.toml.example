@@ -1,0 +1,73 @@
+# cv.toml - configuration for the `cv` tool (tailored one-page CVs).
+#
+# Optional. Everything works without this file: copy it, change what you need,
+# and keep the rest.  Precedence for every value:
+#
+#     CLI flag  ->  environment variable  ->  this file  ->  built-in default
+#
+# The file is found through `--config`, then `$CV_CONFIG`, then
+# `<job root>/config/cv.toml`.  A missing file is silent; a broken one is a
+# usage error (exit 2) that names the file and the problem.  Relative paths are
+# resolved against the job root.  Unknown keys are ignored.
+
+# The uv project of the CV generator that renders each PDF (`cvgen`).
+# Default: <job root>/tools/cv_generator
+generator_project = "tools/cv_generator"
+
+# The generator template passed on as `cvgen render --layout`.  It must be a
+# template the generator knows; "classic" is its shipped reference template and
+# the default.  (The name is not checked here on purpose - the generator's
+# template registry is the single source of truth.)
+generator_template = "classic"
+
+# The file name of a generated CV.  {name} is your own slug, built from
+# `first_name` + `last_name` in profile/inputs/current_<language>.json with all
+# whitespace removed; {language} is the upper-case language (DE/EN) and {folder}
+# is the exact application folder name.
+# Default: CV_{name}_{language}_{folder}.pdf
+target_template = "CV_{name}_{language}_{folder}.pdf"
+
+# The CV headline.  Empty means "take the headline from the profile input"
+# (baseline["headline"]), which is the default and is strongly recommended: the
+# headline is a statement about you, never about a posting, and the model may
+# not change it.  A value here overrides the profile for every CV.
+headline = ""
+
+# The model policy for `--model`.  Allowed: auto | astra | deepseek.
+# Default: "deepseek" = DeepSeek Flash only, never Pro.
+model = "deepseek"
+
+# The languages `--language` accepts, in prompt order.  Default: ["de", "en"].
+languages = ["de", "en"]
+
+[paths]
+# Where the authoritative CV inputs live (profile/inputs/current_<lang>.json,
+# your photo, the career backlogs).  This directory is private.
+# Default: <job root>/profile
+profile_dir = "profile"
+
+# The application folders that hold posting.txt/source.txt and the CVs.
+# Default: <job root>/applications
+applications_dir = "applications"
+
+# Tool-owned private state: sessions, saved inputs, backups of replaced CVs.
+# Default: <job root>/state
+state_dir = "state"
+
+# The career backlogs that supply bullet candidates and sidebar skills.
+# Defaults: <profile_dir>/backlogs/career-knowledge-backlog-DE.md (and -EN.md)
+backlog_de = "profile/backlogs/career-knowledge-backlog-DE.md"
+backlog_en = "profile/backlogs/career-knowledge-backlog-EN.md"
+
+[limits]
+# Upper bounds; the matching CLI flags override them and are validated against
+# the same hard maximums.
+bullets_per_entry = 5      # --max-bullets-per-entry (1..50)
+bullets_total = 13         # --max-bullets-total (1..50)
+headline_chars = 60        # --max-headline (1..200)
+posting_chars = 6000       # --max-posting-chars (1..200000)
+model_timeout = 240        # --timeout, seconds (0 < t <= 3600)
+render_timeout = 150       # --render-timeout, seconds (0 < t <= 3600)
+max_jobs = 4               # upper bound for --jobs (1..4)
+trim_attempts = 8          # --trim-attempts (1..32)
+content_retries = 1        # --content-retries (0..3)

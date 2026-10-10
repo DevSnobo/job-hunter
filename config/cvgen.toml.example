@@ -1,0 +1,43 @@
+# cvgen.toml - configuration for the CV generator (`cvgen`).
+#
+# Optional. Everything works without this file: copy it, change what you need,
+# and keep the rest.  Precedence for every value:
+#
+#     CLI flag  ->  environment variable  ->  this file  ->  built-in default
+#
+# The file is found through `--config`, then `$CVGEN_CONFIG`, then
+# `<repo>/config/cvgen.toml`.  A missing file is silent; a broken one is a usage
+# error (exit 2) that names the file and the problem.  Relative paths are
+# resolved against the repository root (except `input`, see below).  Unknown
+# keys are ignored.
+
+# The private profile directory: the reviewed CV inputs, your photo and the
+# career backlogs.  Environment: $CVGEN_PROFILE_DIR (the `./cvgen` launcher sets
+# it).  A template in <profile_dir>/templates that has the same name as a
+# shipped one replaces it.
+# Default: <repo>/profile
+profile_dir = "profile"
+
+# The input file `cvgen render` uses when no path is given on the command line.
+# A relative path is resolved against `profile_dir`.  `--language de|en` is the
+# shortcut for <profile_dir>/inputs/current_<language>.json and wins over this.
+# Default: none (then a path or --language is required)
+input = "inputs/current_de.json"
+
+# Where rendered PDFs go when no --output is given.  Environment:
+# $CVGEN_OUTPUT_DIR.  Relative paths resolve against the repository root.
+# Default: <repo>/exports/generator
+output_dir = "exports/generator"
+
+# Extra template directories, personal ones first.  The shipped
+# <repo>/tools/cv_generator/templates directory is always scanned last, so a
+# personal template can replace a shipped one of the same name.
+# Default: [] (only the shipped templates)
+template_dirs = []
+
+[template]
+# The active template when more than one template is discovered.  With exactly
+# one template it is used automatically; `--layout NAME` always wins over this.
+# `cvgen layouts` lists every template with its name, origin, description and
+# path.
+name = "classic"

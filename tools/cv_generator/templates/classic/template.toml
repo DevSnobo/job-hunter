@@ -1,0 +1,90 @@
+# classic - the reference template: A4, photo sidebar, one page.
+#
+# A template = a directory with `template.toml` (this file: pure values) and
+# `layout.py` (the drawing code).  The generator reads this file once at import
+# time; change a value here and re-render, no code change needed.
+#
+# Only *pure* values live here.  The gaps *between* sections (the relational
+# spacing that makes sections reflow when one is empty) stay in layout.py,
+# because they encode the measurements the layout tests assert.
+#
+# `name` must be unique among all discovered templates: a personal template in a
+# `template_dirs` directory wins over a shipped one with the same name.
+name = "classic"
+description = "Photo sidebar, A4, one page (the shipped reference layout)"
+
+[page]
+# Page size in PDF points (A4 = 595 x 842).
+width = 595.0
+height = 842.0
+
+[palette]
+# Colours are "#RRGGBB" strings; they are the values of the source PDFs.
+rule = "#BFBFBF"      # dividers/rules and the light surname line
+dark = "#595959"      # name, section headers, bold labels
+body = "#7F7F7F"      # main-column body text, bullets, dates
+grey = "#808080"      # headline, contact text, icon glyphs
+
+[fonts]
+# PDF base-14 font names.  The shipped template needs no font embedding; the
+# bullet glyph is drawn with Symbol, which renders a real U+2022.
+regular = "Helvetica"
+bold = "Helvetica-Bold"
+symbol = "Symbol"
+
+[geometry]
+# Fixed horizontal layout in points, measured from the left page edge.
+photo_size = 214.05          # square photo side, top-left corner
+divider_x = 214.4            # vertical sidebar divider
+sidebar_text_x = 34.9        # left edge of every sidebar text block
+sidebar_rule_left = 34.45    # sidebar section rule, left end
+sidebar_rule_right = 180.7   # sidebar section rule, right end
+contact_text_x = 59.65       # contact text, right of its icon
+icon_center_x = 44.65        # contact icon circle centre
+icon_size = 19.3             # contact icon circle diameter
+icon_glyph_offset = 3.13     # icon centre sits this far above the text baseline
+main_left = 248.5            # left edge of the main column
+main_rule_right = 560.15     # main section rule, right end
+main_text_width = 314.0      # wrap width for role/meta/education/certificate lines
+main_body_width = 291.5      # wrap width for bullet text
+bullet_x = 257.3             # bullet glyph position
+bullet_text_x = 271.0        # bullet text position
+bullet_glyph_drop = 0.88     # bullet glyph baseline sits this far below its text
+signature_right = 547.74     # right-aligned signature
+sidebar_text_width = 145.8   # wrap width of sidebar text (languages, skills)
+contact_text_width = 120.0   # wrap width of a contact line
+
+[anchors]
+# Fixed vertical anchors in points, measured from the top of the page.  Content
+# flows forward from these; the relational gaps stay in layout.py.
+name1_y = 66.69              # first name baseline
+name2_y = 106.59             # last name (light grey) baseline
+headline_y = 137.32          # headline baseline
+experience_header_y = 171.07 # "EXPERIENCE" header baseline
+experience_rule_y = 185.2    # rule below the experience header
+experience_start_y = 204.53  # first experience entry baseline
+signature_date_y = 764.62    # place/date line of the signature
+signature_name_y = 800.71    # signature name line
+signature_clearance = 15.0   # main content must end this far above the date line
+content_bottom_no_signature = 800.71  # content limit when there is no signature
+contact_start_y = 251.98     # first contact row baseline
+sidebar_bottom = 800.71      # sidebar content may not pass this
+
+[typography]
+# Font sizes in points; tracking values are em fractions of the font size.
+body_size = 9.0
+header_size = 11.0
+name_size = 32.0
+signature_name_size = 26.0
+language_dash_size = 10.0    # the " - " between a language and its level
+rule_width = 0.75
+name_tracking_em = 0.2       # letter spacing of the name
+headline_tracking_em = 0.6   # letter spacing of the headline
+header_tracking_em = 0.1     # letter spacing of the section headers
+
+[limits]
+# Optional early guard rails, checked before anything is drawn.  0 = no limit,
+# which is what the shipped reference layout uses: the page geometry then
+# decides, and a CV that is too dense fails as a one-page overflow instead.
+max_bullets_per_entry = 0
+max_bullets_total = 0

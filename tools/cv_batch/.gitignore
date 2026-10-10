@@ -1,0 +1,5 @@
+# Tool-owned private state (session files, saved inputs, staging) and caches.
+/state/
+/.venv/
+/.pytest_cache/
+**/__pycache__/

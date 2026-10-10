@@ -1,0 +1,18 @@
+[project]
+name = "job-hunter"
+version = "0.1.0"
+description = "Private job-application toolchain: tracker (job), posting capture (posting), CV tailoring (cv) and the CV generator (cvgen)."
+requires-python = ">=3.12"
+
+# The root is the uv workspace, not an installable distribution.
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["tools/*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pypdf>=4,<7",
+]
