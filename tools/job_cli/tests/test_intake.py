@@ -45,10 +45,10 @@ def make_folder(project_root: Path, name: str, *, url: str | None = SOURCE_URL,
     ("name", "company", "posting_id"),
     [
         ("Nimbus", "Nimbus", None),
-        ("Assecor", "Assecor", None),
+        ("Aperture", "Aperture", None),
         ("Acme GmbH_2463", "Acme GmbH", "2463"),
-        ("Breuninger", "Breuninger", None),
-        ("Chrono24", "Chrono24", None),
+        ("Bronto", "Bronto", None),
+        ("Cogswell", "Cogswell", None),
         ("Hooli AG", "Hooli AG", None),
         ("Globex_155331", "Globex", "155331"),
         ("Globex_155461", "Globex", "155461"),
@@ -101,7 +101,7 @@ def test_scan_lists_intake_folders_and_skips_everything_else(project_root):
 
 def test_source_url_uses_the_first_non_blank_line_and_refuses_a_symlink(
         project_root, tmp_path):
-    folder = make_folder(project_root, "Assecor", url=None)
+    folder = make_folder(project_root, "Aperture", url=None)
     (folder / "source.txt").write_text("\nhttps://example.com/job\n", encoding="utf-8")
     assert intake.read_source_url(folder) == ("https://example.com/job", None)
 
@@ -119,32 +119,32 @@ def test_source_url_uses_the_first_non_blank_line_and_refuses_a_symlink(
 
 
 def test_scan_reports_a_folder_without_a_usable_source(project_root):
-    folder = make_folder(project_root, "Breuninger", url=None)
+    folder = make_folder(project_root, "Bronto", url=None)
     (folder / "posting.txt").write_text("a posting without a source")
     (found,) = intake.scan(project_root / "applications").folders
     assert found.source_url is None and "no source.txt" in found.source_problem
-    assert found.company == "Breuninger" and found.has_posting
+    assert found.company == "Bronto" and found.has_posting
 
 
 def test_newest_prefers_the_folder_that_changed_last(project_root):
     import os
-    older = make_folder(project_root, "Assecor")
-    newer = make_folder(project_root, "Breuninger")
+    older = make_folder(project_root, "Aperture")
+    newer = make_folder(project_root, "Bronto")
     os.utime(older, (1_000_000, 1_000_000))
     os.utime(newer, (2_000_000, 2_000_000))
     folders = intake.scan(project_root / "applications").folders
-    assert intake.newest(folders).name == "Breuninger"
+    assert intake.newest(folders).name == "Bronto"
     assert intake.newest([]) is None
 
 
 def test_find_refuses_a_name_outside_the_applications_directory(project_root, tmp_path):
-    make_folder(project_root, "Assecor")
-    outside = tmp_path / "Assecor"
+    make_folder(project_root, "Aperture")
+    outside = tmp_path / "Aperture"
     outside.mkdir()
     with pytest.raises(UsageError) as excinfo:
         intake.find(project_root / "applications", str(outside))
     assert "directly inside" in str(excinfo.value)
-    assert intake.find(project_root / "applications", "Assecor").name == "Assecor"
+    assert intake.find(project_root / "applications", "Aperture").name == "Aperture"
 
 
 # --------------------------------------------------------------------------
@@ -167,11 +167,11 @@ def test_add_from_folder_takes_the_company_and_the_source_url(run, project_root)
 
 
 def test_add_from_folder_accepts_the_applications_prefix(run, project_root):
-    make_folder(project_root, "Assecor")
-    result = run("add", "--from-folder", "applications/Assecor", "--role", "Dev",
+    make_folder(project_root, "Aperture")
+    result = run("add", "--from-folder", "applications/Aperture", "--role", "Dev",
                  "--submitted-on", "2026-01-05", "--json")
     assert result.ok, result.output
-    assert json.loads(result.output)["company"] == "Assecor"
+    assert json.loads(result.output)["company"] == "Aperture"
 
 
 def test_add_from_folder_keeps_explicit_company_and_url(run, project_root):
@@ -187,29 +187,29 @@ def test_add_from_folder_keeps_explicit_company_and_url(run, project_root):
 
 
 def test_add_from_folder_without_a_source_leaves_the_url_empty(run, project_root):
-    make_folder(project_root, "Breuninger", url=None)
-    result = run("add", "--from-folder", "Breuninger", "--role", "Dev",
+    make_folder(project_root, "Bronto", url=None)
+    result = run("add", "--from-folder", "Bronto", "--role", "Dev",
                  "--submitted-on", "2026-01-05", "--json")
     assert result.ok, result.output
     saved = json.loads(result.output)
-    assert saved["company"] == "Breuninger"
+    assert saved["company"] == "Bronto"
     assert saved["job_url"] is None
     assert "source.txt" in result.stderr
 
 
 def test_add_from_folder_does_not_register_the_files_as_artifacts(run, project_root):
-    make_folder(project_root, "Assecor")
-    assert run("add", "--from-folder", "Assecor", "--role", "Dev",
+    make_folder(project_root, "Aperture")
+    assert run("add", "--from-folder", "Aperture", "--role", "Dev",
                "--submitted-on", "2026-01-05").ok
-    app_id = find_id(run, "Assecor")
+    app_id = find_id(run, "Aperture")
     detail = payload(run, "show", app_id, "--json")
     assert detail["artifacts"] == []
-    assert (project_root / "applications" / "Assecor" / "posting.txt").is_file()
+    assert (project_root / "applications" / "Aperture" / "posting.txt").is_file()
 
 
 def test_add_from_folder_refuses_missing_escaping_and_application_folders(
         run, new_app, project_root, tmp_path):
-    make_folder(project_root, "Assecor")
+    make_folder(project_root, "Aperture")
     missing = run("add", "--from-folder", "nope", "--role", "Dev",
                   "--submitted-on", "2026-01-05")
     assert missing.exit_code == 2 and "no intake folder" in missing.output
@@ -231,25 +231,25 @@ def test_add_from_folder_refuses_missing_escaping_and_application_folders(
 # job intake
 # --------------------------------------------------------------------------
 def test_intake_lists_folders_and_their_application(run, project_root):
-    make_folder(project_root, "Assecor")
-    make_folder(project_root, "Breuninger")
+    make_folder(project_root, "Aperture")
+    make_folder(project_root, "Bronto")
     fresh = json.loads(run("intake", "--json").output)
-    assert [row["folder"] for row in fresh] == ["Assecor", "Breuninger"]
+    assert [row["folder"] for row in fresh] == ["Aperture", "Bronto"]
     assert all(row["application_id"] is None for row in fresh)
-    assert fresh[0]["company"] == "Assecor" and fresh[0]["posting_id"] is None
+    assert fresh[0]["company"] == "Aperture" and fresh[0]["posting_id"] is None
     assert fresh[0]["source_url"] == SOURCE_URL
     assert fresh[0]["source"] == "www.linkedin.com"
     assert fresh[0]["file_count"] == 4
 
-    assert run("add", "--from-folder", "Assecor", "--role", "Dev",
+    assert run("add", "--from-folder", "Aperture", "--role", "Dev",
                "--submitted-on", "2026-01-05").ok
-    app_id = find_id(run, "Assecor")
+    app_id = find_id(run, "Aperture")
     linked = {row["folder"]: row for row in json.loads(run("intake", "--json").output)}
-    assert linked["Assecor"]["application_id"] == app_id
-    assert linked["Breuninger"]["application_id"] is None
+    assert linked["Aperture"]["application_id"] == app_id
+    assert linked["Bronto"]["application_id"] is None
 
     pending = json.loads(run("intake", "--pending", "--json").output)
-    assert [row["folder"] for row in pending] == ["Breuninger"]
+    assert [row["folder"] for row in pending] == ["Bronto"]
 
 
 def test_intake_is_empty_without_an_applications_directory(run):
@@ -259,10 +259,10 @@ def test_intake_is_empty_without_an_applications_directory(run):
 
 def test_edit_can_set_replace_and_clear_the_folder_link(run, new_app, project_root):
     app_id = new_app()
-    make_folder(project_root, "Assecor")
-    changed = run("edit", app_id, "--set", "intake_folder=Assecor")
+    make_folder(project_root, "Aperture")
+    changed = run("edit", app_id, "--set", "intake_folder=Aperture")
     assert changed.ok, changed.output
-    assert payload(run, "show", app_id, "--json")["application"]["intake_folder"] == "Assecor"
+    assert payload(run, "show", app_id, "--json")["application"]["intake_folder"] == "Aperture"
 
     cleared = run("edit", app_id, "--set", "intake_folder=-")
     assert cleared.ok, cleared.output
@@ -293,12 +293,12 @@ def test_delete_application_keeps_the_intake_folder_on_disk(run, project_root):
 def test_scan_can_exclude_application_directories(project_root):
     application_id = "6f1b2c3d-0000-4000-8000-000000000000"
     make_folder(project_root, application_id)
-    make_folder(project_root, "Assecor")
+    make_folder(project_root, "Aperture")
     applications = project_root / "applications"
     assert [folder.name for folder in intake.scan(applications).folders] == [
-        application_id, "Assecor"]
+        application_id, "Aperture"]
     excluded = intake.scan(applications, exclude={application_id})
-    assert [folder.name for folder in excluded.folders] == ["Assecor"]
+    assert [folder.name for folder in excluded.folders] == ["Aperture"]
     reasons = {item.name: item.reason for item in excluded.skipped}
     assert "existing application" in reasons[application_id]
 
@@ -316,16 +316,16 @@ def test_plan_links_matches_the_job_url_before_the_employer(project_root):
 
 
 def test_plan_links_reports_an_employer_with_several_applications(project_root):
-    make_folder(project_root, "Assecor", url=None)
+    make_folder(project_root, "Aperture", url=None)
     folders = intake.scan(project_root / "applications").folders
     applications = [
-        {"id": "a1", "company": "Assecor", "job_url": None, "intake_folder": None},
-        {"id": "a2", "company": "Assecor", "job_url": None, "intake_folder": None},
+        {"id": "a1", "company": "Aperture", "job_url": None, "intake_folder": None},
+        {"id": "a2", "company": "Aperture", "job_url": None, "intake_folder": None},
     ]
     proposals, ambiguous = intake.plan_links(folders, applications)
     assert proposals == []
     assert [(item.folder, item.application_ids) for item in ambiguous] == [
-        ("Assecor", ("a1", "a2"))]
+        ("Aperture", ("a1", "a2"))]
 
 
 def test_startup_links_by_job_url_and_keeps_json_stdout_clean(run, project_root):
@@ -348,12 +348,12 @@ def test_startup_links_by_job_url_and_keeps_json_stdout_clean(run, project_root)
 
 
 def test_startup_links_the_only_application_of_an_employer(run, project_root):
-    make_folder(project_root, "Assecor", url=None)
-    saved = json.loads(run("add", "--company", "Assecor", "--role", "Dev",
+    make_folder(project_root, "Aperture", url=None)
+    saved = json.loads(run("add", "--company", "Aperture", "--role", "Dev",
                            "--submitted-on", "2026-01-05", "--json").output)
     assert run("list").ok
     detail = payload(run, "--no-link", "show", saved["id"], "--json")["application"]
-    assert detail["intake_folder"] == "Assecor"
+    assert detail["intake_folder"] == "Aperture"
 
 
 def test_startup_never_guesses_between_two_folders_of_one_employer(run, project_root):

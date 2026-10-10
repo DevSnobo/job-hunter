@@ -102,10 +102,10 @@ class HappyPathTests(CliTest):
         self.assert_no_staging_leftovers()
 
     def test_blank_posting_id_uses_company_only(self) -> None:
-        script = text_block("Assecor", "", "https://www.linkedin.com/jobs/view/4473226064/", "Text", ".", "y", "n")
+        script = text_block("Aperture", "", "https://www.linkedin.com/jobs/view/4473226064/", "Text", ".", "y", "n")
         proc = self.run_cli(["--root", str(self.apps)], script)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(self.entries(), ["Assecor"])
+        self.assertEqual(self.entries(), ["Aperture"])
 
     def test_multiline_blank_lines_unicode_and_length_are_preserved(self) -> None:
         body = ["Zeile 1 — Ünïcödé", "", "  eingerückt", "", "日本語テキスト", "", "Emoji: 🚀✅", ""]
@@ -276,12 +276,12 @@ class CollisionTests(CliTest):
         self.assertEqual((self.apps / "Acme Review_A-2" / "source.txt").read_text(encoding="utf-8"), "https://example.com/new\n")
 
     def test_cancel_at_collision_writes_nothing(self) -> None:
-        self.seed("Assecor")
-        script = text_block("Assecor", "", "https://example.com/x", "c")
+        self.seed("Aperture")
+        script = text_block("Aperture", "", "https://example.com/x", "c")
         proc = self.run_cli(["--root", str(self.apps)], script)
         self.assertEqual(proc.returncode, 130, proc.stdout + proc.stderr)
-        self.assertEqual(self.entries(), ["Assecor"])
-        self.assertEqual((self.apps / "Assecor" / "posting.txt").read_text(encoding="utf-8"), "BESTEHEND\n")
+        self.assertEqual(self.entries(), ["Aperture"])
+        self.assertEqual((self.apps / "Aperture" / "posting.txt").read_text(encoding="utf-8"), "BESTEHEND\n")
         self.assert_no_staging_leftovers()
 
     def test_symlink_destination_is_refused(self) -> None:
@@ -657,7 +657,7 @@ class WrapperTests(CliTest):
         self.assert_real_applications_untouched(before)
 
     def test_existing_intake_folders_are_preserved(self) -> None:
-        for name in ("Assecor", "Globex_155461", "Globex_155331"):
+        for name in ("Aperture", "Globex_155461", "Globex_155331"):
             entry = self.apps / name
             entry.mkdir(parents=True, exist_ok=True)
             (entry / "posting.txt").write_text(f"ALT {name}\n", encoding="utf-8")
@@ -665,8 +665,8 @@ class WrapperTests(CliTest):
         script = text_block("Neu GmbH", "N-1", "https://example.com/n", "Text", ".", "y", "n")
         proc = self.run_cli(["--root", str(self.apps)], script)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(self.entries(), ["Assecor", "Globex_155331", "Globex_155461", "Neu GmbH_N-1"])
-        for name in ("Assecor", "Globex_155461", "Globex_155331"):
+        self.assertEqual(self.entries(), ["Aperture", "Globex_155331", "Globex_155461", "Neu GmbH_N-1"])
+        for name in ("Aperture", "Globex_155461", "Globex_155331"):
             self.assertEqual((self.apps / name / "posting.txt").read_text(encoding="utf-8"), f"ALT {name}\n")
 
 
