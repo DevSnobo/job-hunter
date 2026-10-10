@@ -13,8 +13,7 @@
 
 # The private profile directory: the reviewed CV inputs, your photo and the
 # career backlogs.  Environment: $CVGEN_PROFILE_DIR (the `./cvgen` launcher sets
-# it).  A template in <profile_dir>/templates that has the same name as a
-# shipped one replaces it.
+# it).
 # Default: <repo>/profile
 profile_dir = "profile"
 
@@ -31,7 +30,9 @@ output_dir = "exports/generator"
 
 # Extra template directories, personal ones first.  The shipped
 # <repo>/tools/cv_generator/templates directory is always scanned last, so a
-# personal template can replace a shipped one of the same name.
+# personal template can replace a shipped one of the same name.  Point this at
+# a directory of your own (for example "profile/templates") to keep personal
+# templates out of the repository.
 # Default: [] (only the shipped templates)
 template_dirs = []
 
