@@ -431,6 +431,7 @@ Profile        : /path/to/job-hunter/examples/profile
 Generator      : /path/to/job-hunter/tools/cv_generator
 State (private): /tmp/cv-example-state
 Language       : EN
+Agent          : prime-agent
 Model          : deepseek (default) - DeepSeek Flash only (deepseek/deepseek-v4-flash; never Pro), no fallback
 Session mode   : fresh   parallel jobs: 1
 Layout         : classic (default)   (renderer --layout)

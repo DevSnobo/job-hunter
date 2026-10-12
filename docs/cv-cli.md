@@ -13,7 +13,7 @@ pipeline owns every file written.
 |---|---|
 | `uv` | The launcher `bin/cv` runs `uv run --quiet --project <root> --package cv-batch cv ...`. Without `uv` on `PATH` it prints an error and exits 127. |
 | workspace dependencies | Run `uv sync` once at the repository root. |
-| a CLI agent | Only a real run needs one: it reads the candidate catalog and returns the selected IDs (`--dry-run` never calls it). The shipped default adapter drives `prime-agent` (executable `prime-agent`, never `prime`; override the executable with `--model-command EXE` or `$CV_PRIME_AGENT`). Any other CLI agent can be used instead - see [Custom CLI agent](#custom-cli-agent). |
+| a CLI agent | Only a real run needs one: it reads the candidate catalog and returns the selected IDs (`--dry-run` never calls it). The shipped default adapter drives `prime-agent` (override the executable with `--model-command EXE` or `$CV_PRIME_AGENT`). Any other CLI agent can be used instead - see [Custom CLI agent](#custom-cli-agent). |
 | a profile | `profile/inputs/current_de.json` and `current_en.json` (the reviewed baseline) plus the backlogs `profile/backlogs/career-knowledge-backlog-DE.md` and `-EN.md`. The baseline supplies `first_name`, `last_name` and `headline`; the first two build the CV file name. Copy the synthetic example: `cp -r examples/profile profile`. |
 | `applications/` | One folder per posting. A folder is usable when it is a real directory with a non-empty regular `posting.txt`. |
 | config (optional) | `config/cv.toml`, found through `--config`, then `$CV_CONFIG`, then `<job root>/config/cv.toml`. |
