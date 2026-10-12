@@ -974,7 +974,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"from {catalog.baseline_path.name}"
             )
             for note in catalog.notes:
-                console.info(f"note: {note}")
+                console.warn(note)
         except CatalogError as exc:
             console.error(f"catalog unavailable: {exc}")
             return EXIT_FAILURES
@@ -1017,6 +1017,7 @@ def main(argv: list[str] | None = None) -> int:
         allow_replace_invalid=args.regenerate_invalid,
         allow_overwrite=args.overwrite,
         log=console.info,
+        warn=console.warn,
     )
 
     summary = None

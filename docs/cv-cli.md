@@ -14,7 +14,7 @@ pipeline owns every file written.
 | `uv` | The launcher `bin/cv` runs `uv run --quiet --project <root> --package cv-batch cv ...`. Without `uv` on `PATH` it prints an error and exits 127. |
 | workspace dependencies | Run `uv sync` once at the repository root. |
 | a CLI agent | Only a real run needs one: it reads the candidate catalog and returns the selected IDs (`--dry-run` never calls it and needs no agent). Nothing is built in - the tool runs the command you configure in `cv.toml` `[agent] command` (or `$CV_AGENT_COMMAND`, or `--agent-command`). See [The CLI agent](#the-cli-agent). |
-| a profile | `profile/inputs/current_de.json` and `current_en.json` (the reviewed baseline) plus the backlogs `profile/backlogs/career-knowledge-backlog-DE.md` and `-EN.md`. The baseline supplies `first_name`, `last_name` and `headline`; the first two build the CV file name. Copy the synthetic example: `cp -r examples/profile profile`. |
+| a profile | `profile/inputs/current_de.json` and `current_en.json` (the reviewed baseline) plus the backlogs `profile/backlogs/career-knowledge-backlog-DE.md` and `-EN.md` ([format](backlog.md); start from `examples/profile/backlogs/*.md.example`). The baseline supplies `first_name`, `last_name` and `headline`; the first two build the CV file name. Copy the synthetic example: `cp -r examples/profile profile`. |
 | `applications/` | One folder per posting. A folder is usable when it is a real directory with a non-empty regular `posting.txt`. |
 | config (optional) | `config/cv.toml`, found through `--config`, then `$CV_CONFIG`, then `<job root>/config/cv.toml`. |
 
@@ -41,6 +41,13 @@ job fails on its own: one bad posting never stops the rest of the batch. See
 | validate | `cv_batch` | a selection with known IDs, or a bounded retry |
 | render | `cvgen render` in the generator's uv project | a one-page A4 PDF on a staging path |
 | publish | `cv_batch` | the PDF in the application folder and the run evidence under `state/` |
+
+The backlog is optional, and every gap in it falls back instead of failing: a
+missing file, a dated section that matches no entry, a section whose items have
+no bullet form, or a missing sidebar section each use the baseline bullets or
+skills, and a real run reports it as a `warn: ...` line — the same text
+`--dry-run` prints. [backlog.md](backlog.md) documents the format and every
+fallback.
 
 ## The CLI agent
 

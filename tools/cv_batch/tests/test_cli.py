@@ -598,6 +598,25 @@ def test_out_of_range_limits_are_rejected(project, flag, value, fragment, capsys
     assert fragment in capsys.readouterr().err
 
 
+def test_a_real_run_warns_about_a_backlog_problem(project, fake_agent, fake_renderer, capsys):
+    """A missing/unmatched backlog is not fatal, but a real run must say so."""
+    entry = el_entry_id()
+    fake_agent.steps([{"answer": selection_answer({entry: [f"{entry}/b1"]})}])
+    project.add_app("Alpha")
+    project.backlog_de.unlink()
+
+    code = main([
+        *base_args(project, fake_agent, fake_renderer),
+        "--language", "de", "--select", "1", "--yes",
+    ])
+
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "warn:" in out
+    assert "backlog not found" in out
+    assert "summary: ok 1" in out
+
+
 def test_default_limits_still_run_the_normal_flow(project, fake_agent, fake_renderer, capsys):
     fake_agent.steps([{"answer": ANSWER}])
     project.add_app("Alpha")

@@ -1,0 +1,53 @@
+# Career knowledge backlog — <your name>
+
+A fill-in template. `./cv` reads this file for `--language en`; the German
+counterpart is `career-knowledge-backlog-DE.md`. The full format is documented
+in `docs/backlog.md` (repository); a filled-in version sits next to this file in
+`career-knowledge-backlog-EN.md`.
+
+The three rules in short:
+
+- A `###` heading belongs to one entry of `inputs/current_en.json` when it names
+  that entry's company and **both** dates of its `meta` line.
+- Inside a matched section, every `#### N. Title` item is a candidate for the CV.
+- Only the text under **Resume bullet** (or a plain `- ` line) can reach the CV;
+  the **Detailed version** is background and is never offered.
+
+The companies, dates and texts below are placeholders. Check with
+`./cv --dry-run --all --language en`: the output names every section that could
+not be matched.
+
+## 1. Work timeline
+
+### 01.2020 – 12.2023 — Example GmbH, Musterstadt
+
+#### 1. Title of the item
+
+**Detailed version**
+
+Two to five sentences of background: the situation, what you did, what came out
+of it. This text is never put into a CV.
+
+**Resume bullet**
+
+- One CV line, with a result, a tool or a number.
+
+#### 2. Another item
+
+**Detailed version**
+
+As above: background only.
+
+**Resume bullet**
+
+- Another CV line.
+
+## 2. Technical skills — CV sidebar
+
+### Languages & Frameworks
+
+- **Java, Spring Boot**, JakartaEE
+
+### Build & Tools
+
+- Git, Maven, Gradle

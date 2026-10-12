@@ -23,7 +23,11 @@ one consistent story.
      in the `photo` field of both input files.
    - `backlogs/career-knowledge-backlog-DE.md` and `-EN.md` - the material the
      CV tool may select from. Only a marked **Resume bullet** (English) or
-     **Lebenslaufpunkt** (German) can become a CV bullet.
+     **Lebenslaufpunkt** (German) - or a plain `- ` bullet line - can become a
+     CV bullet. The full format and every fallback are documented in
+     [docs/backlog.md](../../docs/backlog.md); to write your own file, copy the
+     `career-knowledge-backlog-*.md.example` skeleton next to the filled-in
+     examples in `backlogs/`.
 
 3. Keep `profile/` private. It is gitignored and must never be committed.
 
@@ -74,4 +78,6 @@ that the long form is background only. The dated section for the
 `07.2018 - 02.2022` entry replaces the baseline bullets with four approved
 items, and item 4 deliberately has no bullet form. A date line that says
 `present` (German: `heute`) matches no dated section, so that entry keeps the
-bullets from the input JSON. Run `./cv --dry-run` to see both notes.
+bullets from the input JSON. Run `./cv --dry-run` to see both, and expect them
+as two `warn:` lines: for this example profile they are intentional, not a
+mistake in the example.

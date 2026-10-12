@@ -212,6 +212,7 @@ class Runner:
         allow_replace_invalid: bool,
         allow_overwrite: bool = False,
         log: Callable[[str], None] = print,
+        warn: Callable[[str], None] | None = None,
     ) -> None:
         self.paths = paths
         self.language = language
@@ -230,6 +231,8 @@ class Runner:
         #: ``--overwrite``: an existing *valid* CV may be replaced deliberately.
         self.allow_overwrite = allow_overwrite
         self.log = log
+        #: backlog/catalog problems of a real run (the plan's ``note:`` lines)
+        self.warn = warn if warn is not None else log
         self._catalogs: dict[str, Catalog] = {}
         self._catalog_lock = threading.Lock()
         self.cancel = threading.Event()
@@ -278,7 +281,14 @@ class Runner:
         backlog = backlog_for(language, self.paths.backlog_de, self.paths.backlog_en)
         catalog = build_catalog(language=language, baseline_path=baseline, backlog_path=backlog)
         with self._catalog_lock:
+            existing = self._catalogs.get(language)
+            if existing is not None:
+                return existing
             self._catalogs[language] = catalog
+        # A backlog problem is not fatal (the baseline bullets are used instead),
+        # but a real run must say so instead of silently ignoring the backlog.
+        for note in catalog.notes:
+            self.warn(note)
         return catalog
 
     # ------------------------------------------------------------------- job

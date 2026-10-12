@@ -444,8 +444,8 @@ Missing tailored CVs:
 dry run: 1 job(s) would run; nothing was written
   sample-application -> CV_AdaLovelace_EN_sample-application.pdf
 catalog: 3 entries, 11 candidates from current_en.json
-note: en: no backlog section matched exp/analytical-engines (Software Developer Backend); using the baseline bullets
-note: en: backlog item exp/analytical-engines-2018-07/el4 has no bullet form; the long form is never used
+warn: en: no backlog section matched exp/analytical-engines (Software Developer Backend); using the baseline bullets
+warn: en: backlog item exp/analytical-engines-2018-07/el4 has no bullet form; the long form is never used
 ```
 
 The generator input stays in `examples/profile/inputs/current_en.json`; only the

@@ -145,7 +145,9 @@ id:
 Two candidates that share a group (same `el<N>`) are alternatives and only one
 of them can be selected. When a dated backlog section matches an entry, its
 bullet forms replace the input bullets for that entry. When it does not match,
-the input bullets stay, and the run prints a note.
+the input bullets stay, and the run warns. The backlog format itself (heading
+matching, the two labels, the sidebar section, every fallback) is documented in
+[backlog.md](backlog.md).
 
 ## The CV pipeline
 
@@ -214,7 +216,7 @@ produced the PDF, the model, the token usage and the trims. That is what makes a
 finished CV reproducible.
 
 `./cv` details: [cv CLI](cv-cli.md). Renderer details and the flag list:
-[cvgen CLI](cvgen-cli.md), [templates](templates.md).
+[cvgen CLI](cvgen-cli.md), [templates](templates.md), [backlog](backlog.md).
 
 ## The SQLite schema
 

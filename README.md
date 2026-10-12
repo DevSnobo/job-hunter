@@ -63,6 +63,11 @@ Lovelace) that runs the whole chain; replace every value with your own:
 cp -r examples/profile profile
 ```
 
+`./cv` also needs a CLI agent: fill in `[agent] command` in `config/cv.toml`
+(the comments in `config/cv.toml.example` show a prime-agent and a Claude Code
+command). Until then `./cv --dry-run` works and a real run refuses with the
+exact fix; see [docs/cv-cli.md](docs/cv-cli.md).
+
 Create the database and the schema, then use the tools:
 
 ```bash
@@ -87,7 +92,7 @@ configuration" is one line per directory:
 | `applications/<folder>/` | private | One folder per application: `posting.txt`, `source.txt`, the rendered CVs, attachments. Written by `./posting` and `./cv`; read by `./job`, `./cv`. |
 | `profile/inputs/current_de.json`, `current_en.json` | private | Input: the reviewed CV inputs per language (identity, contacts, education, certificates, roles, bullets). |
 | `profile/photos/` | private | Input: your photo, named by the `photo` field of the input JSON. |
-| `profile/backlogs/*.md` | private | Input: extra CV bullet candidates and the sidebar skills. |
+| `profile/backlogs/*.md` | private | Input: extra CV bullet candidates and the sidebar skills. Start from `examples/profile/backlogs/*.md.example`; format: [docs/backlog.md](docs/backlog.md). |
 | `data/job.sqlite3` | private | The tracker database. Written by `./job`, read by everything that reports. |
 | `data/backups/` | private | Backups written before a migration or a restore. |
 | `exports/` | private | Output: `./job export snapshots`, the Sankey bundles, and `exports/generator/` for rendered PDFs. |
@@ -142,6 +147,8 @@ that file as personal data. Everything else under `exports/` is private too.
 - [docs/job-cli.md](docs/job-cli.md) - the full `job` command reference.
 - [docs/posting-cli.md](docs/posting-cli.md) - the guided posting capture.
 - [docs/cv-cli.md](docs/cv-cli.md) - selection, retention, models and exit codes of `./cv`.
+- [docs/backlog.md](docs/backlog.md) - the private backlog format: how a section
+  matches a job, which text may become a CV bullet, and the fallbacks.
 - [docs/cvgen-cli.md](docs/cvgen-cli.md) - the renderer, its flags and the input schema.
 - [docs/templates.md](docs/templates.md) - the template system and how to write your own.
 - [docs/development.md](docs/development.md) - the uv workspace, the test suites and

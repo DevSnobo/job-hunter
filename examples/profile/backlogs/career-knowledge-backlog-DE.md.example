@@ -1,0 +1,56 @@
+# Karriere-Backlog — <dein Name>
+
+Vorlage zum Ausfüllen. `./cv` liest diese Datei für `--language de`; die
+englische Entsprechung ist `career-knowledge-backlog-EN.md`. Das vollständige
+Format steht in `docs/backlog.md` (Repository), eine ausgefüllte Fassung in
+`career-knowledge-backlog-DE.md` daneben.
+
+Die drei Regeln in Kurzform:
+
+- Eine `###`-Überschrift ordnet sich einem Eintrag aus
+  `inputs/current_de.json` zu, wenn sie dessen Firma und **beide** Daten der
+  `meta`-Zeile nennt.
+- In einem zugeordneten Abschnitt ist jeder `#### N. Titel`-Eintrag ein
+  Kandidat für den Lebenslauf.
+- Nur der Text unter **Lebenslaufpunkt** (oder eine schlichte `- `-Zeile) kann
+  in den Lebenslauf; die **Ausführliche Version** ist Hintergrund und wird nie
+  angeboten.
+
+Firmen, Daten und Texte unten sind Platzhalter. Prüfen mit
+`./cv --dry-run --all --language de`: die Ausgabe nennt jeden Abschnitt, der
+nicht zugeordnet werden konnte.
+
+## 1. Beruflicher Werdegang
+
+### 01.2020 – 12.2023 — Beispiel GmbH, Musterstadt
+
+#### 1. Titel des Eintrags
+
+**Ausführliche Version**
+
+Zwei bis fünf Sätze Hintergrund: Ausgangslage, was du getan hast, was dabei
+herauskam. Dieser Text wird nie in einen Lebenslauf übernommen.
+
+**Lebenslaufpunkt**
+
+- Ein Satz für den Lebenslauf, mit Ergebnis, Werkzeug oder Zahl.
+
+#### 2. Noch ein Eintrag
+
+**Ausführliche Version**
+
+Wie oben: nur Hintergrund.
+
+**Lebenslaufpunkt**
+
+- Noch ein Satz für den Lebenslauf.
+
+## 2. Technische Skills — Seitenleiste des Lebenslaufs
+
+### Sprachen & Frameworks
+
+- **Java, Spring Boot**, JakartaEE
+
+### Build & Tools
+
+- Git, Maven, Gradle

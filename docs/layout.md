@@ -27,14 +27,14 @@ the tools find their root, how a value is resolved, and how to move data.
 | `data/job.sqlite3` | private | `./job db migrate` creates it, every write command changes it | The database. Everything else reads it. |
 | `data/backups/` | private | `./job db migrate`, `./job db backup`, `./job db restore`, and every command that changes history | Copies named `job-<stamp>.sqlite3`, written with the SQLite backup API. |
 | `docs/` | tracked | you | This documentation. |
-| `docs/*.md` | tracked | you | The eight pages: `layout.md`, `architecture.md`, `job-cli.md`, `posting-cli.md`, `cv-cli.md`, `cvgen-cli.md`, `templates.md`, `development.md`. |
-| `examples/` | tracked | you | The synthetic profile and one sample application. |
+| `docs/*.md` | tracked | you | The nine pages: `layout.md`, `architecture.md`, `job-cli.md`, `posting-cli.md`, `cv-cli.md`, `backlog.md`, `cvgen-cli.md`, `templates.md`, `development.md`. |
+| `examples/` | tracked | you | The synthetic profile (baseline, backlogs incl. `*.md.example` skeletons, photo) and one sample application. |
 | `exports/` | private | `./job export` | Export output: `snapshot-<stamp>.json` and `sankey-<stamp>/`. |
 | `exports/generator/` | private | `./cvgen` (also called by `./cv`) | Rendered PDFs (`current_en.pdf`, `CV_*.pdf`). |
 | `profile/` | private | you | Your identity and your CV content. The tools only read it. |
 | `profile/inputs/` | private | you | `current_de.json` and `current_en.json`: the reviewed CV inputs. |
 | `profile/photos/` | private | you | Photos. The input file names one in its `photo` field. |
-| `profile/backlogs/` | private | you | `career-knowledge-backlog-DE.md` and `-EN.md`: bullet candidates and sidebar skills. |
+| `profile/backlogs/` | private | you | `career-knowledge-backlog-DE.md` and `-EN.md`: bullet candidates and sidebar skills. Start from `examples/profile/backlogs/*.md.example`; format: [backlog.md](backlog.md). |
 | `sql/` | tracked | you | The schema and the read-only SQL. The single source of truth for the database. |
 | `sql/migrations/` | tracked | you | `001_initial_schema.sql`, `002_reporting_views.sql`, `003_intake_folder.sql`, and every later migration. |
 | `sql/queries/` | tracked | you | The seven read-only queries that reporting and exports run. |
