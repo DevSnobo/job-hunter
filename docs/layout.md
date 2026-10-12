@@ -66,14 +66,14 @@ as intake folders:
 |---|---|---|
 | `tools/job_cli` | `./job` | Registers applications, logs events and rounds, reports, exports, migrates the schema. |
 | `tools/posting_entry` | `./posting` | Captures a job posting into `applications/<company>[_<posting-id>]/`. |
-| `tools/cv_batch` | `./cv` | Tailors one CV per posting with a CLI agent (default `prime-agent`) and renders it. |
+| `tools/cv_batch` | `./cv` | Tailors one CV per posting with your configured CLI agent and renders it. |
 | `tools/cv_generator` | `./cvgen` | Renders a structured CV JSON to a one-page A4 PDF. |
 
 ## What lands in `state/`
 
-`state/` belongs to `./cv`, except the last two rows. `--state-dir` and
-`cv.toml [paths] state_dir` move the whole directory. The tool creates the five
-subdirectories it owns on the first run.
+`state/` belongs to `./cv`. `--state-dir` and `cv.toml [paths] state_dir` move
+the whole directory. The tool creates the four subdirectories it owns on the
+first run.
 
 | directory | written by | contents |
 |---|---|---|
@@ -81,17 +81,13 @@ subdirectories it owns on the first run.
 | `state/runs/` | `./cv` | `<stamp>-<folder-slug>-<hash10>-<language>-<hex6>.json`, one file per job run. Runs never overwrite each other. |
 | `state/replaced/` | `./cv` | `<CV name>.<hex8>.bak`: the old bytes of a CV that `--regenerate-invalid` or `--overwrite` replaced. |
 | `state/staging/` | `./cv` | The render area of one job: `<slug>-<hash6>-<language>-<hex8>/input.json` plus the PDF that `cvgen` wrote. The tool deletes the folder when the job ends. |
-| `state/sessions/` | the CLI agent (built-in `prime-agent` adapter) | `<session-id>.jsonl` transcripts. `./cv` passes `--session-dir state/sessions`. |
-| `state/session-artifacts/` | the CLI agent (built-in `prime-agent` adapter) | `<session-id>/semantic-edges.jsonl`, one directory per session id. |
 
-The last two rows are written by the agent process, not by Python code in this
-repository, and only when the built-in `prime-agent` adapter runs (a custom
-`--agent-command` writes none). `state/sessions/` and
-`state/session-artifacts/` use the same session ids, so one directory matches one
-transcript.
+Everything under `state/` is written by this repository. Where the *agent* keeps
+its own sessions is up to the `[agent] command` you configure (for example
+`prime-agent`'s `--session-dir`); `./cv` does not create a session directory.
 
-Safe to delete: `state/runs/`, `state/replaced/`, `state/staging/` and
-`state/session-artifacts/`. They are history and scratch space.
+Safe to delete: `state/runs/`, `state/replaced/` and `state/staging/`. They are
+history and scratch space.
 
 Do not delete `state/inputs/` while you still need a reproducible CV: it is the
 only record of which candidate ids produced a PDF. The sessions are also the
@@ -214,7 +210,7 @@ CLI flag  ->  environment variable  ->  config file  ->  built-in default
 |---|---|---|---|---|
 | `./job` | `<job root>/config/job.toml` | `$JOB_CONFIG` | no | `$JOB_DB` (database), `$JOB_ROOT` (root) |
 | `./posting` | `<job root>/config/posting.toml` | `$POSTING_CONFIG` | no | `$JOB_ROOT` (root) |
-| `./cv` | `<job root>/config/cv.toml` | `$CV_CONFIG` | yes | `$CV_JOB_ROOT` (root), `$CV_PRIME_AGENT` (the agent executable) |
+| `./cv` | `<job root>/config/cv.toml` | `$CV_CONFIG` | yes | `$CV_JOB_ROOT` (root), `$CV_AGENT_COMMAND` (the agent command), `$CV_AGENT_FORMAT` (the answer format) |
 | `./cvgen` | `<repo>/config/cvgen.toml` | `$CVGEN_CONFIG` | yes | `$CVGEN_PROFILE_DIR`, `$CVGEN_OUTPUT_DIR` |
 
 `job` and `posting` have no `--config` flag on purpose: the environment variable

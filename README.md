@@ -7,7 +7,7 @@ posting, and a local CV renderer. No job board, no hosted service and no AI API
 is contacted by the tools themselves. The optional CV tailoring step is the only
 part that calls a model: it drives a CLI agent on your machine, and that agent
 has one narrow job - read your experience backlog and pick the points for the
-CV. `prime-agent` is the shipped default; any other CLI agent can be plugged in.
+CV. Which CLI agent that is, is your choice: `./cv` runs the command you configure.
 
 This repository is **public** and contains **no personal data**. All personal
 material lives in private, gitignored directories (`applications/`, `profile/`,
@@ -33,7 +33,7 @@ only convenience: the tools work from any working directory.
 |---|---|
 | [uv](https://docs.astral.sh/uv/) | Runs every tool and manages the single `.venv` of the workspace. |
 | Python 3.12 or newer | The workspace requires `>=3.12` and pins 3.14 in `.python-version`; uv installs it when needed. |
-| a CLI agent (optional) | Only `./cv` needs one: it reads your experience backlog and selects the points for the CV. The shipped default adapter drives `prime-agent`; any other CLI agent can be used instead (`./cv --explain-modes`). `./cv --dry-run` works without any. |
+| a CLI agent (optional) | Only `./cv` needs one: it reads your experience backlog and selects the points for the CV. Any CLI agent works - set `[agent] command` in `config/cv.toml` (`./cv --explain-modes`); nothing is built in. `./cv --dry-run` works without any. |
 | poppler-utils (optional) | Only `./cvgen render --png` needs `pdftoppm`. The PDF is always written. |
 | an SVG rasterizer (optional) | `rsvg-convert` (librsvg), `inkscape` or ImageMagick: `./job export sankey` always writes the SVG, and a PNG only when one of them is installed. |
 

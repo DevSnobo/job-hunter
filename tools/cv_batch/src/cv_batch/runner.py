@@ -62,7 +62,6 @@ from .render import (
     terminate_processes,
     validate_pdf_file,
 )
-from .sessions import ModelPolicy, SessionPolicy
 
 OK = "ok"
 SKIPPED = "skipped"
@@ -112,8 +111,7 @@ class JobResult:
     job: JobSpec
     status: str
     message: str = ""
-    model: str = ""
-    resumed: bool = False
+    agent: str = ""
     session_id: str | None = None
     usage: Usage = field(default_factory=Usage)
     bullet_count: int = 0
@@ -201,8 +199,6 @@ class Runner:
         *,
         paths: Paths,
         language: str,
-        model_policy: ModelPolicy,
-        session_policy: SessionPolicy,
         agent: AgentAdapter,
         generator_exe: str | None,
         layout: str = DEFAULT_LAYOUT,
@@ -215,13 +211,10 @@ class Runner:
         content_retries: int,
         allow_replace_invalid: bool,
         allow_overwrite: bool = False,
-        thinking: str | None = None,
         log: Callable[[str], None] = print,
     ) -> None:
         self.paths = paths
         self.language = language
-        self.models = model_policy
-        self.sessions = session_policy
         self.agent = agent
         self.generator_exe = generator_exe
         #: renderer layout name, forwarded verbatim to ``cvgen render --layout``
@@ -236,7 +229,6 @@ class Runner:
         self.allow_replace_invalid = allow_replace_invalid
         #: ``--overwrite``: an existing *valid* CV may be replaced deliberately.
         self.allow_overwrite = allow_overwrite
-        self.thinking = thinking
         self.log = log
         self._catalogs: dict[str, Catalog] = {}
         self._catalog_lock = threading.Lock()
@@ -347,8 +339,6 @@ class Runner:
         finally:
             os.close(dir_fd)
         selection, run = self._select(catalog, posting)
-        if self.agent.uses_sessions:
-            self.sessions.record(run.session_id)
 
         cv = build_cv_dict(self._baseline(job.language), catalog, selection)
         stage = (
@@ -420,8 +410,7 @@ class Runner:
             job,
             OK,
             message,
-            model=run.label,
-            resumed=run.resumed,
+            agent=run.label,
             session_id=run.session_id,
             usage=run.usage,
             bullet_count=bullets,
@@ -485,26 +474,16 @@ class Runner:
 
     def _select(self, catalog: Catalog, posting: str) -> tuple[Selection, ModelRun]:
         retries = self.content_retries
-        switched = False
-        session_fallback = False
         validation_error: str | None = None
         prompt = build_user_prompt(
             language=catalog.language, catalog=catalog, posting=posting, limits=self.limits
         )
         while True:
-            uses_model = self.agent.uses_model_policy
-            spec = self.models.current() if uses_model else None
-            plan = self.sessions.plan() if self.agent.uses_sessions else None
             try:
                 run = run_model(
                     self.agent,
-                    spec=spec,
                     prompt=prompt,
                     system_prompt=SYSTEM_PROMPT,
-                    session_dir=plan.session_dir if plan else None,
-                    resume_id=plan.resume_id if plan else None,
-                    no_session=plan.no_session if plan else False,
-                    thinking=self.thinking if uses_model else None,
                     timeout=self.model_timeout,
                     on_start=self.track,
                     on_end=self.untrack,
@@ -512,31 +491,6 @@ class Runner:
             except ModelError as exc:
                 if self.cancel.is_set():
                     raise JobFailure("cancelled") from exc
-                if (
-                    self.agent.uses_sessions
-                    and exc.category == "session"
-                    and plan is not None
-                    and plan.resume_id
-                    and not session_fallback
-                ):
-                    session_fallback = True
-                    self.sessions.reset()
-                    self.log(
-                        "  session: resume is not usable for this call; retrying once with a fresh session"
-                    )
-                    continue
-                # ``note_failure`` is thread-safe and returns True for any caller
-                # whose failed spec is the (now exhausted) primary model, also
-                # when another worker performed the switch (F3).  The local
-                # ``switched`` flag keeps the retry at one per job.
-                if not switched and uses_model and self.models.note_failure(exc.category, failed_spec=spec):
-                    switched = True
-                    self.sessions.reset()
-                    self.log(
-                        f"  model: {spec.name} unusable ({exc.category}); "
-                        f"switching to {self.models.current().selector} for the rest of this batch"
-                    )
-                    continue
                 raise JobFailure(f"model call failed: {exc}") from exc
 
             try:
@@ -594,11 +548,10 @@ class Runner:
                 "existing_target_reason": state.reason,
                 "backup": None,
             },
-            "model": {
-                "agent": run.agent,
-                "selector": run.label,
+            "agent": {
+                "command": list(run.command),
+                "label": run.label,
                 "session_id": run.session_id,
-                "resumed": run.resumed,
                 "answer_source": run.answer_source,
                 "usage": {
                     "input": run.usage.input,
@@ -770,9 +723,9 @@ def run_batch(
 
 def _report(result: JobResult, log: Callable[[str], None]) -> None:
     if result.status == OK:
-        details = [f"model={result.model}", f"bullets={result.bullet_count}"]
-        if result.resumed:
-            details.append("session=reused")
+        details = [f"agent={result.agent}", f"bullets={result.bullet_count}"]
+        if result.session_id:
+            details.append(f"session={result.session_id}")
         if result.backup is not None:
             details.append(f"backup={result.backup.name}")
         if result.usage and not result.usage.empty:

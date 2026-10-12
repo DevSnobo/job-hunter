@@ -13,11 +13,14 @@ every value:
 
     CLI flag  ->  environment variable  ->  cv.toml  ->  built-in default
 
-Environment variables exist for the job root (``CV_JOB_ROOT``), the prime-agent
-executable (``CV_PRIME_AGENT``), a custom agent command (``CV_AGENT_COMMAND``)
+Environment variables exist for the job root (``CV_JOB_ROOT``), the agent
+command (``CV_AGENT_COMMAND``), the agent answer format (``CV_AGENT_FORMAT``)
 and the configuration file itself (``CV_CONFIG``); the other values have no
 environment variable and fall straight from the CLI flag to ``cv.toml`` and then
 to the built-in default.
+
+The agent is never hard-coded: ``[agent] command`` (see below) is the only way
+the tool learns how to invoke a CLI agent, and a run without one is refused.
 
 A missing config file is normal and silent: every run works without one.  A file
 that exists but cannot be used (invalid TOML, a value of the wrong type) is a
@@ -34,28 +37,21 @@ from pathlib import Path
 from typing import Any
 
 ENV_JOB_ROOT = "CV_JOB_ROOT"
-ENV_PRIME_AGENT = "CV_PRIME_AGENT"
 ENV_AGENT_COMMAND = "CV_AGENT_COMMAND"
+ENV_AGENT_FORMAT = "CV_AGENT_FORMAT"
 ENV_CONFIG = "CV_CONFIG"
 
 #: File name of this tool's configuration file (below ``<root>/config``).
 CONFIG_FILENAME = "cv.toml"
 
-#: The ``[agent]`` table: how the CLI agent is invoked.  ``command`` selects a
-#: custom agent command (any CLI agent); without it the built-in prime-agent
-#: adapter runs.
+#: The ``[agent]`` table: how the CLI agent is invoked and how its answer is
+#: read.  ``command`` is the full argument list (``{prompt}`` required,
+#: ``{system_prompt}`` optional); ``format`` is ``text`` (the answer is stdout,
+#: the default) or ``prime-agent-json`` (the answer is in prime-agent's JSON
+#: event stream).
 CONFIG_AGENT_TABLE = "agent"
 CONFIG_AGENT_COMMAND = "command"
-
-#: Model policy: DeepSeek *Flash* is the default (``--model deepseek``); ``auto``
-#: starts on Astra and falls back to DeepSeek Flash.  Never DeepSeek Pro.
-ASTRA_PROVIDER = "openai-codex"
-ASTRA_MODEL = "gpt-6-astra"
-DEEPSEEK_PROVIDER = "deepseek"
-DEEPSEEK_MODEL = "deepseek-v4-flash"
-
-#: Default ``--model`` choice: DeepSeek Flash only, no fallback to Astra.
-DEFAULT_MODEL = "deepseek"
+CONFIG_AGENT_FORMAT = "format"
 
 #: Renderer layout forwarded verbatim to ``cvgen render --layout``.  ``classic``
 #: is the generator's shipped reference template; naming it explicitly and
@@ -283,10 +279,6 @@ class Paths:
         return self.profile_dir / "inputs"
 
     @property
-    def sessions(self) -> Path:
-        return self.state_dir / "sessions"
-
-    @property
     def inputs(self) -> Path:
         return self.state_dir / "inputs"
 
@@ -303,7 +295,7 @@ class Paths:
         return self.state_dir / "replaced"
 
     def ensure(self) -> None:
-        for path in (self.sessions, self.inputs, self.runs, self.staging, self.replaced):
+        for path in (self.inputs, self.runs, self.staging, self.replaced):
             path.mkdir(parents=True, exist_ok=True)
 
 
@@ -361,16 +353,11 @@ def build_paths(
     )
 
 
-def default_prime_agent() -> str:
-    """The prime-agent executable: ``$CV_PRIME_AGENT``, else ``prime-agent``."""
-    return os.environ.get(ENV_PRIME_AGENT) or "prime-agent"
-
-
 def agent_command_from_env() -> list[str] | None:
     """``$CV_AGENT_COMMAND`` split like a shell command; ``None`` when unset.
 
-    The value is the command template of a custom CLI agent (the
-    ``[agent] command`` key as one string).  A malformed value is a usage error.
+    The value is the command of a CLI agent (the ``[agent] command`` key as one
+    string).  A malformed value is a usage error.
     """
     raw = os.environ.get(ENV_AGENT_COMMAND)
     if raw is None or not raw.strip():
@@ -379,6 +366,14 @@ def agent_command_from_env() -> list[str] | None:
         return shlex.split(raw)
     except ValueError as exc:
         raise ConfigError(f"${ENV_AGENT_COMMAND} is not a valid command: {exc}") from exc
+
+
+def agent_format_from_env() -> str | None:
+    """``$CV_AGENT_FORMAT``; ``None`` when unset (the config or the default wins)."""
+    raw = os.environ.get(ENV_AGENT_FORMAT)
+    if raw is None or not raw.strip():
+        return None
+    return raw.strip()
 
 
 LANGUAGES = ("de", "en")

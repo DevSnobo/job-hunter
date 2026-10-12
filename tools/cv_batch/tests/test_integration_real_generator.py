@@ -17,11 +17,9 @@ import pytest
 from cv_batch.catalog import build_catalog
 from cv_batch.config import build_paths
 from cv_batch.prompt import Limits
-from cv_batch.model import PrimeAgentAdapter
 from cv_batch.runner import JobSpec, Runner
-from cv_batch.sessions import ModelPolicy, SessionPolicy
 
-from conftest import selection_answer, target_name
+from conftest import prime_agent_adapter, selection_answer, target_name
 
 # The repository this checkout lives in; nothing personal is hardcoded.  The
 # private profile is either $CVS_PROFILE_DIR or ``<repo>/profile``, and the
@@ -95,9 +93,7 @@ def _run_real(project, fake_agent, language: str, catalog, tmp_path, *, allow_ov
     runner = Runner(
         paths=paths,
         language=language,
-        model_policy=ModelPolicy("auto"),
-        session_policy=SessionPolicy("fresh", paths.sessions),
-        agent=PrimeAgentAdapter(fake_agent.exe),
+        agent=prime_agent_adapter(fake_agent.exe),
         generator_exe=None,  # real: uv run --project <cv_generator> cvgen render ...
         limits=Limits(max_bullets_per_entry=5, max_bullets_total=13, max_headline=60),
         posting_chars=6000,

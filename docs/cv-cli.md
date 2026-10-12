@@ -13,7 +13,7 @@ pipeline owns every file written.
 |---|---|
 | `uv` | The launcher `bin/cv` runs `uv run --quiet --project <root> --package cv-batch cv ...`. Without `uv` on `PATH` it prints an error and exits 127. |
 | workspace dependencies | Run `uv sync` once at the repository root. |
-| a CLI agent | Only a real run needs one: it reads the candidate catalog and returns the selected IDs (`--dry-run` never calls it). The shipped default adapter drives `prime-agent` (override the executable with `--model-command EXE` or `$CV_PRIME_AGENT`). Any other CLI agent can be used instead - see [Custom CLI agent](#custom-cli-agent). |
+| a CLI agent | Only a real run needs one: it reads the candidate catalog and returns the selected IDs (`--dry-run` never calls it and needs no agent). Nothing is built in - the tool runs the command you configure in `cv.toml` `[agent] command` (or `$CV_AGENT_COMMAND`, or `--agent-command`). See [The CLI agent](#the-cli-agent). |
 | a profile | `profile/inputs/current_de.json` and `current_en.json` (the reviewed baseline) plus the backlogs `profile/backlogs/career-knowledge-backlog-DE.md` and `-EN.md`. The baseline supplies `first_name`, `last_name` and `headline`; the first two build the CV file name. Copy the synthetic example: `cp -r examples/profile profile`. |
 | `applications/` | One folder per posting. A folder is usable when it is a real directory with a non-empty regular `posting.txt`. |
 | config (optional) | `config/cv.toml`, found through `--config`, then `$CV_CONFIG`, then `<job root>/config/cv.toml`. |
@@ -37,54 +37,17 @@ job fails on its own: one bad posting never stops the rest of the batch. See
 |---|---|---|
 | scan and classify | `cv_batch` | the numbered candidate list and the plan |
 | catalog | `cv_batch` from `profile/` | candidate IDs the model may select |
-| generate | the CLI agent (default adapter: `prime-agent -p --mode json`) | one JSON answer per job |
+| generate | the CLI agent (your `[agent] command`) | one JSON answer per job |
 | validate | `cv_batch` | a selection with known IDs, or a bounded retry |
 | render | `cvgen render` in the generator's uv project | a one-page A4 PDF on a staging path |
 | publish | `cv_batch` | the PDF in the application folder and the run evidence under `state/` |
 
-## Model policy
+## The CLI agent
 
-`--model` chooses the policy for the built-in `prime-agent` adapter. The default
-comes from `cv.toml` `model`, else `deepseek`. For another CLI agent, see
-[Custom CLI agent](#custom-cli-agent).
-
-| value | behaviour |
-|---|---|
-| `deepseek` | DeepSeek Flash only (`deepseek/deepseek-v4-flash`), never Pro. No fallback: a recognised quota, rate-limit, availability or authentication failure fails the job. |
-| `auto` | Astra (`openai-codex/gpt-6-astra`) first. Switch to DeepSeek Flash only on a recognised quota, rate-limit, availability or authentication failure, then keep Flash for the rest of the batch. Malformed JSON and validation problems never switch the model. |
-| `astra` | Astra only. No fallback. |
-
-`./cv --explain-modes` prints the full documentation. The model part is:
-
-```text
-Model policy:
-
-  deepseek (default)   DeepSeek Flash only, never Pro
-                       (deepseek/deepseek-v4-flash).  No fallback: a recognised
-                       quota/rate-limit, availability or authentication failure
-                       fails the job.
-  auto                 Try Astra (openai-codex/gpt-6-astra) first.  Switch to
-                       DeepSeek Flash (deepseek/deepseek-v4-flash) only when
-                       the call fails with a recognised quota/rate-limit,
-                       availability or authentication problem, then keep using
-                       Flash for the rest of the batch.  Malformed JSON and
-                       validation problems never trigger a switch; they are
-                       retried at most --content-retries times with the
-                       validator message.
-  astra                Astra only.  No fallback.
-
-  There is no separate quota probe and no paid retry loop.  Token counters are
-  reported only when the CLI exposes them in its JSON event stream.
-```
-
-Related flags: `--thinking LEVEL` (prime-agent reasoning level) and
-`--timeout SECONDS` (model timeout, default `[limits] model_timeout`, else 240).
-
-## Custom CLI agent
-
-`prime-agent` is the default, not a requirement. `./cv` needs only a CLI agent
-that reads a system prompt plus the user message and prints its answer - the
-selection JSON - on stdout. Point the tool at another agent with any of:
+`./cv` needs only a CLI agent that reads a system prompt plus the user message
+and prints its answer - the selection JSON - on stdout. Nothing about an agent
+is built in: the tool runs exactly the command you configure, and a real run
+refuses to start without one.
 
 | source | value |
 |---|---|
@@ -92,8 +55,7 @@ selection JSON - on stdout. Point the tool at another agent with any of:
 | environment | `$CV_AGENT_COMMAND`, the same command as one shell-style string |
 | flag | `--agent-command 'your-agent --print {prompt}'` |
 
-A flag beats the environment, which beats the configuration file; without any of
-them the built-in `prime-agent` adapter runs.
+A flag beats the environment, which beats the configuration file.
 
 The command is a template. `{prompt}` is replaced with the user message and is
 required. `{system_prompt}` is replaced with the system prompt when the template
@@ -104,13 +66,45 @@ split. Use your agent's headless/print mode and disable its tools the way that
 agent documents it.
 
 The command must print the answer JSON on stdout. A non-zero exit fails the job,
-and the same recognised `quota`/rate-limit, `availability` and `authentication`
-failures are read from its stderr as for `prime-agent`.
+and recognised `quota`/rate-limit, `availability` and `authentication` wording
+in its stderr names the failure in the error message.
 
-The model policy and the session modes above belong to the built-in `prime-agent`
-adapter. A custom command runs without them: no `--model`/`--thinking` selection,
-no `state/sessions/`, and no token accounting. `--jobs N` still runs N command
-processes in parallel.
+### Answer format
+
+`[agent] format` says how the answer is read. `--agent-format` beats
+`$CV_AGENT_FORMAT`, which beats `cv.toml`; the default is `text`.
+
+| value | behaviour |
+|---|---|
+| `text` (default) | the answer is the child's stdout. Any CLI agent that prints its answer works. |
+| `prime-agent-json` | the child prints `prime-agent`'s JSON event stream (`-p --mode json`); the answer is read from its assistant events, and the session id and the token usage are recorded in the run evidence. |
+
+Examples:
+
+```toml
+[agent]
+format = "text"
+command = ["claude", "-p", "--append-system-prompt", "{system_prompt}", "{prompt}"]
+```
+
+```toml
+[agent]
+format = "prime-agent-json"
+command = [
+  "prime-agent", "-p", "--mode", "json",
+  "--provider", "deepseek", "--model", "deepseek-v4-flash",
+  "--no-skills", "--no-prompt-templates", "--no-context-files",
+  "--system-prompt", "{system_prompt}", "--", "{prompt}",
+]
+```
+
+Everything the agent needs - model, thinking level, session flags, resource
+flags - is part of the command, so switching models or agents is a config edit,
+never a code change. With the `text` format there is no token accounting and no
+recorded session; `--jobs N` still runs N command processes in parallel.
+
+`./cv --explain-modes` prints the short version of this, together with the
+selection scope and the renderer layout.
 
 ## Selection
 
@@ -207,12 +201,12 @@ Details:
 | `state/inputs/<folder>-<hash>-<lang>.json` | the canonical run record for that folder and language |
 | `state/runs/<timestamp>-<folder>-<hash>-<lang>-<suffix>.json` | the same record, one file per run |
 | `state/replaced/*.bak` | copies of replaced files |
-| `state/sessions/` | agent sessions (built-in `prime-agent` adapter only, mode `fresh` or `reuse`) |
 | `state/staging/` | scratch directory, removed with the job |
 
 The record holds `generator_input` (the exact JSON that produced the accepted
-PDF, post-trim), the `layout`, the selection metadata, the model and session
-details, the used trims and the publish information.
+PDF, post-trim), the `layout`, the selection metadata, the agent command and its
+session id/usage (when the format reports them), the used trims and the publish
+information.
 
 Fitting one page is a loop, not a single try. When the renderer reports an
 overflow, the tool drops the last bullet of the longest entry (the oldest job
@@ -223,25 +217,11 @@ so an overflow fails the job immediately. A rejected model answer is retried at
 most `--content-retries` times with the validator message (default from
 `[limits] content_retries`, else 1).
 
-`--jobs N` runs N jobs as parallel fresh sessions. It saves wall time; token use
-stays about the same. The upper bound is `[limits] max_jobs` in `cv.toml`
-(default 4) - an upper bound, not a default: without `--jobs` the tool runs one
-job at a time even when `max_jobs` is 4. `--session-mode reuse` cannot be
-combined with `--jobs > 1`, because a live session is never shared.
-
-The three session modes come from `./cv --explain-modes`:
-
-```text
-  fresh (default)  One new tool-owned session per job, run sequentially.
-                   Predictable and isolated; no cross-job history.
-  reuse            ONE tool-owned session is created for the first job and
-                   resumed (--resume <id> --session-dir <tool dir>) for every
-                   later job in the same batch, always sequentially.  Reuse is
-                   NOT a token promise: the transcript grows with every job and
-                   the provider decides how much of it is cached.  A live
-                   session is never shared between parallel jobs.
-  none             --no-session: nothing is saved anywhere.
-```
+`--jobs N` runs N jobs in parallel. It saves wall time; token use stays about
+the same. The upper bound is `[limits] max_jobs` in `cv.toml` (default 4) - an
+upper bound, not a default: without `--jobs` the tool runs one job at a time
+even when `max_jobs` is 4. Sessions are whatever your agent command does: pass
+whatever session or resume flags you want inside `[agent] command`.
 
 ## Options
 
@@ -261,12 +241,9 @@ Execution:
 
 | option | meaning |
 |---|---|
-| `--jobs N` | parallel fresh sessions (1..`[limits] max_jobs`) |
-| `--session-mode {fresh,reuse,none}` | session policy (default `fresh`; built-in `prime-agent` adapter) |
-| `--model {auto,astra,deepseek}` | model policy (default from `cv.toml` `model`, else `deepseek`) |
-| `--thinking LEVEL` | prime-agent reasoning level (built-in adapter) |
-| `--model-command EXE` | prime-agent executable (default `prime-agent`, or `$CV_PRIME_AGENT`; built-in adapter) |
-| `--agent-command CMD` | drive another CLI agent instead of prime-agent (default: `$CV_AGENT_COMMAND`, else `cv.toml [agent] command`) |
+| `--jobs N` | parallel jobs (1..`[limits] max_jobs`) |
+| `--agent-command CMD` | the CLI agent command (default: `$CV_AGENT_COMMAND`, else `cv.toml [agent] command`); `{prompt}` required, `{system_prompt}` optional |
+| `--agent-format {text,prime-agent-json}` | how the answer is read (default: `$CV_AGENT_FORMAT`, else `cv.toml [agent] format`, else `text`) |
 | `--timeout SECONDS` | model timeout (default `[limits] model_timeout`, else 240) |
 | `--content-retries N` | paid model retries after a rejected answer, 0..3 (default `[limits] content_retries`, else 1) |
 | `--no-trim` | never drop bullets to fit one page; an overflow then fails |
@@ -338,12 +315,12 @@ $ echo $?
 
 | symptom | cause and fix |
 |---|---|
-| `fail: <folder> [de] model call failed: agent executable not found: /nonexistent/prime-agent` (also printed as `error: <folder>: model call failed: ...`), exit 1 | The agent executable is not on `PATH`. Install `prime-agent`, or pass `--model-command` / set `$CV_PRIME_AGENT` (or point `--agent-command` at your own agent). Nothing was written to the application folder. |
+| `fail: <folder> [de] model call failed: agent executable not found: /nonexistent/agent` (also printed as `error: <folder>: model call failed: ...`), exit 1 | The agent executable of your `[agent] command` is not on `PATH`. Install it, or fix the command in `cv.toml` (or `--agent-command`). Nothing was written to the application folder. |
+| `error: no CLI agent is configured: set cv.toml [agent] command ...`, exit 2 | A real run needs an agent command. Set `cv.toml [agent] command`, `$CV_AGENT_COMMAND` or `--agent-command`; `--dry-run` works without one. |
 | `error: baseline input not found: <profile>/inputs/current_de.json`, exit 2 | The profile is incomplete. Copy `examples/profile` to `profile` or fix `[paths] profile_dir` in `cv.toml`. |
 | `error: --folder NAME: no such folder under <applications>`, exit 2 | The name is not the basename of a usable folder. Unusable folders report their own reason (`--folder NAME: no posting.txt`). |
 | `nothing to do: every usable posting folder already has a valid DE CV.`, exit 0 | Nothing is missing. Use `--overwrite` to replace a CV deliberately. |
 | `fail: <folder> [de] layout overflow and no safe trim left after N attempt(s); no PDF was written for <folder>`, exit 1 | The CV does not fit one page and no bullet could be dropped. Shorten the profile material, raise the limits, or set `--trim-attempts` higher. `--no-trim` makes the first overflow fatal. |
-| `error: --session-mode reuse cannot be combined with --jobs > 1 (a live session is never shared)`, exit 2 | Run the batch with `--jobs 1`, or use `--session-mode fresh`. |
 | `fail: <folder> [de] PlaceError: the target X changed after it was inspected; refusing to replace it`, exit 1 | Another process changed the CV between the scan and the replacement. Inspect the file and run again. |
 | `error: no selection given and stdin is not a terminal; use --select or --all`, exit 2 | A scripted run needs `--select` or `--all`. Add `--yes` for a real run. |
 | `error: refusing to start without --yes on a non-interactive stdin`, exit 2 | Same cause: pass `--yes` when stdin is not a terminal. |

@@ -19,6 +19,7 @@ from . import apps as apps_mod
 from . import tty_input
 from .config import (
     CONFIG_AGENT_COMMAND,
+    CONFIG_AGENT_FORMAT,
     CONFIG_AGENT_TABLE,
     CONFIG_GENERATOR_TEMPLATE,
     DEFAULT_CONTENT_RETRIES,
@@ -28,7 +29,6 @@ from .config import (
     DEFAULT_MAX_BULLETS_TOTAL,
     DEFAULT_MAX_HEADLINE,
     DEFAULT_MAX_JOBS,
-    DEFAULT_MODEL,
     DEFAULT_MODEL_TIMEOUT,
     DEFAULT_POSTING_CHARS,
     DEFAULT_RENDER_TIMEOUT,
@@ -39,19 +39,18 @@ from .config import (
     ConfigError,
     TargetNaming,
     agent_command_from_env,
+    agent_format_from_env,
     build_paths,
-    default_prime_agent,
     find_job_root,
     load_config,
     name_slug,
     normalize_language,
 )
 from .catalog import CatalogError, backlog_for, baseline_for, build_catalog, load_identity
-from .model import AgentAdapter, CommandAgentAdapter, PrimeAgentAdapter
+from .model import AGENT_FORMATS, AgentAdapter
 from .prompt import Limits
 from .runner import BatchInterrupted, Runner, run_batch
 from .selection import SelectionError, parse_selection
-from .sessions import SESSION_MODES, ModelPolicy, SessionPolicy
 
 EXIT_OK = 0
 EXIT_FAILURES = 1
@@ -66,21 +65,11 @@ MAX_POSTING_CHARS = 200_000
 MAX_BULLETS_LIMIT = 50
 MAX_HEADLINE_LIMIT = 200
 
-MODE_HELP = """Session and throughput modes (documented trade-offs):
+MODE_HELP = """Batch throughput:
 
-  fresh (default)  One new tool-owned session per job, run sequentially.
-                   Predictable and isolated; no cross-job history.
-  reuse            ONE tool-owned session is created for the first job and
-                   resumed (--resume <id> --session-dir <tool dir>) for every
-                   later job in the same batch, always sequentially.  Reuse is
-                   NOT a token promise: the transcript grows with every job and
-                   the provider decides how much of it is cached.  A live
-                   session is never shared between parallel jobs.
-  none             --no-session: nothing is saved anywhere.
-
-  --jobs N (N>1)   Bounded parallel fresh sessions.  This mainly saves wall
-                   time.  Token use stays roughly the same and may grow.
-                   Reuse is rejected together with --jobs > 1.
+  --jobs N (N>1)   Bounded parallel jobs.  This mainly saves wall time; token
+                   use stays roughly the same and may grow.  Every job is its
+                   own call of the configured CLI agent.
 
 Selection scope:
 
@@ -99,34 +88,22 @@ Renderer layout:
                        so an unknown one fails as a render error.  It does not
                        change the output file name.
 
-Model policy:
+CLI agent:
 
-  deepseek (default)   DeepSeek Flash only, never Pro
-                       (deepseek/deepseek-v4-flash).  No fallback: a recognised
-                       quota/rate-limit, availability or authentication failure
-                       fails the job.
-  auto                 Try Astra (openai-codex/gpt-6-astra) first.  Switch to
-                       DeepSeek Flash (deepseek/deepseek-v4-flash) only when
-                       the call fails with a recognised quota/rate-limit,
-                       availability or authentication problem, then keep using
-                       Flash for the rest of the batch.  Malformed JSON and
-                       validation problems never trigger a switch; they are
-                       retried at most --content-retries times with the
-                       validator message.
-  astra                Astra only.  No fallback.
+  The tool drives a headless CLI agent to pick the CV content, and nothing
+  about that agent is built in: the command lives in cv.toml [agent] command
+  (see config/cv.toml.example), or $CV_AGENT_COMMAND, or --agent-command, and
+  the tool runs exactly that command.  {prompt} is required; {system_prompt} is
+  replaced with the selector instructions when the template names it (otherwise
+  the instructions are prepended to the prompt).  The command must print the
+  answer JSON on stdout, and no shell runs.
 
-  There is no separate quota probe and no paid retry loop.  Token counters are
-  reported only when the CLI exposes them in its JSON event stream.
-
-Custom agent:
-
-  The tool drives a headless CLI agent to pick the CV content, and prime-agent
-  is only the default choice.  Set cv.toml [agent] command = ["your-agent",
-  "{prompt}"], or $CV_AGENT_COMMAND, or --agent-command, to use any other CLI
-  agent.  The command receives {prompt}, and {system_prompt} when the template
-  carries it (otherwise the instructions are prepended to the prompt), and must
-  print the answer JSON on stdout.  The model policy and the session modes above
-  belong to the built-in prime-agent agent; a custom command runs without them.
+  [agent] format (--agent-format, $CV_AGENT_FORMAT) says how the answer is
+  read: "text" (the default) takes the child's stdout as the answer; and
+  "prime-agent-json" reads prime-agent's JSON event stream, which also supplies
+  the session id and the token usage.  A run without a configured agent command
+  is refused before anything happens; --dry-run never calls the agent and works
+  without one.
 
 Existing CV files:
 
@@ -200,7 +177,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--version", action="version", version=f"cv {__version__}")
-    parser.add_argument("--explain-modes", action="store_true", help="print the mode/fallback documentation and exit")
+    parser.add_argument("--explain-modes", action="store_true", help="print the trade-off documentation and exit")
 
     sel = parser.add_argument_group("selection")
     sel.add_argument("--language", metavar="de|en", help="CV language; blank entry in the prompt means DE")
@@ -243,29 +220,28 @@ def build_parser() -> argparse.ArgumentParser:
         default=1,
         metavar="N",
         help=(
-            f"parallel fresh sessions (1..{DEFAULT_MAX_JOBS}; the upper bound comes from "
+            f"parallel jobs (1..{DEFAULT_MAX_JOBS}; the upper bound comes from "
             f"cv.toml [limits] max_jobs)"
         ),
     )
-    run.add_argument("--session-mode", choices=SESSION_MODES, default="fresh")
-    run.add_argument(
-        "--model",
-        choices=("auto", "astra", "deepseek"),
-        default=None,
-        help=(
-            f"model policy (default from cv.toml 'model', else {DEFAULT_MODEL} = DeepSeek Flash only; "
-            "auto = Astra first with DeepSeek Flash fallback; astra = Astra only)"
-        ),
-    )
-    run.add_argument("--thinking", metavar="LEVEL", default=None, help="prime-agent reasoning level")
-    run.add_argument("--model-command", metavar="EXE", default=None, help="prime-agent executable (default: prime-agent)")
     run.add_argument(
         "--agent-command",
         metavar="CMD",
         default=None,
         help=(
-            "custom CLI agent command, e.g. 'claude -p {prompt}' (default: the built-in "
-            "prime-agent adapter; overrides $CV_AGENT_COMMAND and cv.toml [agent] command)"
+            "CLI agent command, e.g. 'claude -p {prompt}' (default: $CV_AGENT_COMMAND, "
+            "else cv.toml [agent] command); {prompt} is required and {system_prompt} is "
+            "replaced when the command names it"
+        ),
+    )
+    run.add_argument(
+        "--agent-format",
+        choices=AGENT_FORMATS,
+        default=None,
+        help=(
+            "how the agent's answer is read: 'text' (the answer is stdout, default) or "
+            "'prime-agent-json' (prime-agent's JSON event stream; also records the session "
+            "id and token usage); default from $CV_AGENT_FORMAT, else cv.toml [agent] format"
         ),
     )
     run.add_argument(
@@ -357,7 +333,6 @@ def _apply_config_defaults(args, config: Config) -> None:
     the directory options.
     """
     limits = "limits"
-    args.model = args.model or config.text("model", DEFAULT_MODEL)
     args.layout = args.layout or config.text(CONFIG_GENERATOR_TEMPLATE, DEFAULT_LAYOUT)
     # ``max_jobs`` is the upper bound for ``--jobs`` (whose own default stays 1),
     # not a default parallelism: a config file must never start a 4-way batch
@@ -420,13 +395,22 @@ def _headline_override(config: Config) -> str | None:
     return value.strip() or None
 
 
-def _select_agent(args, config: Config) -> AgentAdapter:
-    """Pick the agent adapter: a custom command, else the prime-agent default.
+NO_AGENT_HELP = (
+    "no CLI agent is configured: set cv.toml [agent] command (see "
+    "config/cv.toml.example), or $CV_AGENT_COMMAND, or --agent-command"
+)
 
-    Precedence for the custom command: ``--agent-command`` ->
-    ``$CV_AGENT_COMMAND`` -> ``cv.toml [agent] command``.  Without one, the
-    built-in prime-agent adapter runs, with its executable from
-    ``--model-command`` or ``$CV_PRIME_AGENT``.
+
+def _select_agent(args, config: Config) -> AgentAdapter | None:
+    """Build the agent adapter from the configured command and format.
+
+    Command precedence: ``--agent-command`` -> ``$CV_AGENT_COMMAND`` ->
+    ``cv.toml [agent] command``.  Nothing is built in: without a command a real
+    run is refused (``None`` is returned), because the tool never guesses which
+    CLI agent to call; ``--dry-run`` still plans without one.
+
+    Format precedence: ``--agent-format`` -> ``$CV_AGENT_FORMAT`` ->
+    ``cv.toml [agent] format`` -> ``text``.
     """
     command: list[str] | None
     if args.agent_command is not None:
@@ -436,9 +420,15 @@ def _select_agent(args, config: Config) -> AgentAdapter:
         if command is None:
             configured = config.string_list(CONFIG_AGENT_COMMAND, section=CONFIG_AGENT_TABLE)
             command = list(configured) if configured is not None else None
-    if command is not None:
-        return CommandAgentAdapter(command)
-    return PrimeAgentAdapter(args.model_command or default_prime_agent())
+    if not command:
+        return None
+    format = (
+        args.agent_format
+        or agent_format_from_env()
+        or config.text(CONFIG_AGENT_FORMAT, "text", section=CONFIG_AGENT_TABLE)
+        or "text"
+    )
+    return AgentAdapter(command, format=format)
 
 
 def _validate_limits(args) -> list[str]:
@@ -527,18 +517,6 @@ def _choose_language(args, console: Console, languages: tuple[str, ...] = LANGUA
     return EXIT_USAGE
 
 
-#: One plain-language line per ``--model`` choice, used by the plan and the confirm prompt.
-_MODEL_DESCRIPTIONS = {
-    "deepseek": "DeepSeek Flash only (deepseek/deepseek-v4-flash; never Pro), no fallback",
-    "auto": "Astra first (openai-codex/gpt-6-astra), DeepSeek Flash on a recognised failure",
-    "astra": "Astra only (openai-codex/gpt-6-astra), no fallback",
-}
-
-
-def _model_description(choice: str) -> str:
-    return _MODEL_DESCRIPTIONS.get(choice, choice)
-
-
 @dataclass(frozen=True)
 class FolderScope:
     """A validated ``--folder`` restriction (the *scope* of one run)."""
@@ -611,7 +589,7 @@ def _print_plan(
     missing,
     invalid,
     valid,
-    agent: AgentAdapter,
+    agent: AgentAdapter | None,
     *,
     allow_replace: bool,
     allow_overwrite: bool,
@@ -623,14 +601,10 @@ def _print_plan(
     console.info(f"Generator      : {paths.generator_project}")
     console.info(f"State (private): {paths.state_dir}")
     console.info(f"Language       : {language.upper()}")
-    console.info(f"Agent          : {agent.describe()}")
-    if agent.uses_model_policy:
-        suffix = " (default)" if args.model == DEFAULT_MODEL else ""
-        console.info(f"Model          : {args.model}{suffix} - {_model_description(args.model)}")
-    if agent.uses_sessions:
-        console.info(f"Session mode   : {args.session_mode}   parallel jobs: {args.jobs}")
-    else:
-        console.info(f"Parallel jobs  : {args.jobs}")
+    console.info(f"Agent          : {agent.describe() if agent else '(none configured)'}")
+    if agent is not None:
+        console.info(f"Agent format   : {agent.format}")
+    console.info(f"Parallel jobs  : {args.jobs}")
     layout_suffix = " (default)" if args.layout == DEFAULT_LAYOUT else ""
     console.info(f"Layout         : {args.layout}{layout_suffix}   (renderer --layout)")
     console.info(
@@ -762,12 +736,7 @@ def _confirm(
             f"This overwrites {overwriting} existing CV file(s); "
             f"each old file is backed up under the tool state directory first."
         )
-    if agent.uses_model_policy:
-        agent_line = f"Model: {args.model} - {_model_description(args.model)}   "
-    else:
-        agent_line = f"Agent: {agent.describe()}   "
-    session_line = f"Session mode: {args.session_mode}   " if agent.uses_sessions else ""
-    console.info(f"{agent_line}{session_line}Parallel jobs: {args.jobs}   Layout: {args.layout}")
+    console.info(f"Agent: {agent.describe()}   Parallel jobs: {args.jobs}   Layout: {args.layout}")
     answer = _ask("Proceed? [y/N]: ", console)
     if answer is None:
         return None
@@ -802,16 +771,8 @@ def main(argv: list[str] | None = None) -> int:
     except (ConfigError, ValueError) as exc:
         console.error(str(exc))
         return EXIT_USAGE
-    if not agent.uses_sessions and (args.thinking is not None or args.session_mode != "fresh"):
-        console.warn(
-            "--thinking and --session-mode apply to the built-in prime-agent agent only; ignoring them"
-        )
-
     if args.jobs < 1 or args.jobs > args.max_jobs:
         console.error(f"--jobs must be between 1 and {args.max_jobs}")
-        return EXIT_USAGE
-    if args.jobs > 1 and args.session_mode == "reuse" and agent.uses_sessions:
-        console.error("--session-mode reuse cannot be combined with --jobs > 1 (a live session is never shared)")
         return EXIT_USAGE
     limit_errors = _validate_limits(args)
     if limit_errors:
@@ -1019,6 +980,11 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_FAILURES
         return EXIT_OK
 
+    if agent is None:
+        # A real run needs an agent; --dry-run (which returned above) does not.
+        console.error(NO_AGENT_HELP)
+        return EXIT_USAGE
+
     if not args.yes:
         if not sys.stdin.isatty():
             console.error("refusing to start without --yes on a non-interactive stdin")
@@ -1031,13 +997,9 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_OK
 
     paths.ensure()
-    model_policy = ModelPolicy(args.model)
-    session_policy = SessionPolicy(args.session_mode, paths.sessions)
     runner = Runner(
         paths=paths,
         language=language,
-        model_policy=model_policy,
-        session_policy=session_policy,
         agent=agent,
         generator_exe=args.generator_exe,
         layout=args.layout,
@@ -1054,7 +1016,6 @@ def main(argv: list[str] | None = None) -> int:
         content_retries=args.content_retries,
         allow_replace_invalid=args.regenerate_invalid,
         allow_overwrite=args.overwrite,
-        thinking=args.thinking,
         log=console.info,
     )
 
@@ -1080,11 +1041,6 @@ def main(argv: list[str] | None = None) -> int:
     usage = summary.usage()
     if not usage.empty:
         console.info(usage.describe())
-    if model_policy.astra_exhausted:
-        console.info(
-            f"Astra was unusable ({model_policy.switch_reason}); the batch continued on "
-            f"{model_policy.current().selector}"
-        )
     for result in summary.failed:
         console.error(f"{result.job.folder}: {result.message}")
     if summary.ok:

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import el_entry_id, selection_answer
+from conftest import el_entry_id, prime_agent_command, selection_answer
 
 pytestmark = pytest.mark.integration
 
@@ -34,8 +34,10 @@ def test_launcher_runs_from_a_path_with_spaces(project, fake_agent, fake_rendere
             str(LAUNCHER),
             "--root",
             str(project.root),
-            "--model-command",
-            fake_agent.exe,
+            "--agent-command",
+            prime_agent_command(fake_agent.exe),
+            "--agent-format",
+            "prime-agent-json",
             "--generator-exe",
             fake_renderer.exe,
             "--language",
@@ -94,8 +96,10 @@ def test_launcher_regenerates_an_invalid_target_only_with_the_optin(project, fak
             str(LAUNCHER),
             "--root",
             str(project.root),
-            "--model-command",
-            fake_agent.exe,
+            "--agent-command",
+            prime_agent_command(fake_agent.exe),
+            "--agent-format",
+            "prime-agent-json",
             "--generator-exe",
             fake_renderer.exe,
             "--language",
@@ -134,8 +138,10 @@ def test_launcher_replaces_an_existing_valid_cv_only_with_overwrite(project, fak
         str(LAUNCHER),
         "--root",
         str(project.root),
-        "--model-command",
-        fake_agent.exe,
+        "--agent-command",
+        prime_agent_command(fake_agent.exe),
+        "--agent-format",
+        "prime-agent-json",
         "--generator-exe",
         fake_renderer.exe,
         "--language",
@@ -193,6 +199,10 @@ def test_launcher_never_numbers_an_invalid_target_by_default(project, fake_agent
             str(LAUNCHER),
             "--root",
             str(project.root),
+            "--agent-command",
+            prime_agent_command(fake_agent.exe),
+            "--agent-format",
+            "prime-agent-json",
             "--language",
             "de",
             "--plain",
@@ -227,8 +237,10 @@ def test_launcher_folder_scope_tailors_only_that_folder(project, fake_agent, fak
             str(LAUNCHER),
             "--root",
             str(project.root),
-            "--model-command",
-            fake_agent.exe,
+            "--agent-command",
+            prime_agent_command(fake_agent.exe),
+            "--agent-format",
+            "prime-agent-json",
             "--generator-exe",
             fake_renderer.exe,
             "--folder",

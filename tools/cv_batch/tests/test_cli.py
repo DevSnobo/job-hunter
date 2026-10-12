@@ -13,7 +13,7 @@ from cv_batch import apps as apps_mod
 from cv_batch.cli import main
 from cv_batch.runner import BatchInterrupted, BatchSummary, JobResult, JobSpec
 
-from conftest import el_entry_id, selection_answer, sp_entry_id, target_name
+from conftest import el_entry_id, prime_agent_command, selection_answer, sp_entry_id, target_name
 from test_runner import make_runner
 
 EL = el_entry_id()
@@ -36,26 +36,32 @@ def tty(monkeypatch):
     return install
 
 
-def base_args(project, fake_agent, fake_renderer):
-    return [
+def base_args(project, fake_agent, fake_renderer, *, with_agent=True):
+    args = [
         "--root",
         str(project.root),
-        "--model-command",
-        fake_agent.exe,
         "--generator-exe",
         fake_renderer.exe,
         "--plain",
     ]
+    if with_agent:
+        # The agent command is config, not code: the tests supply the fake one.
+        args += [
+            "--agent-command",
+            prime_agent_command(fake_agent.exe),
+            "--agent-format",
+            "prime-agent-json",
+        ]
+    return args
 
 
 def test_explain_modes_documents_the_tradeoffs(capsys):
     assert main(["--explain-modes"]) == 0
     out = capsys.readouterr().out
-    assert "not a token promise" in out.lower()
-    assert "deepseek-v4-flash" in out
-    assert "never Pro" in out
-    assert "deepseek (default)" in out
-    assert "--resume <id>" in out
+    assert "cv.toml [agent] command" in out
+    assert "{prompt} is required" in out
+    assert "prime-agent-json" in out
+    assert "--jobs N (N>1)" in out
 
 
 def test_dry_run_writes_nothing(project, fake_agent, fake_renderer, capsys):
@@ -81,24 +87,28 @@ def test_non_interactive_selection_without_yes_is_refused(project, fake_agent, f
     assert "refusing to start without --yes" in capsys.readouterr().err
 
 
-def test_reuse_with_parallel_jobs_is_rejected(project, fake_agent, fake_renderer, capsys):
+def test_a_run_without_a_configured_agent_is_refused(project, fake_agent, fake_renderer, capsys):
     project.add_app("Alpha")
-    code = main(
-        [
-            *base_args(project, fake_agent, fake_renderer),
-            "--language",
-            "de",
-            "--select",
-            "1",
-            "--yes",
-            "--jobs",
-            "2",
-            "--session-mode",
-            "reuse",
-        ]
-    )
+    code = main([
+        *base_args(project, fake_agent, fake_renderer, with_agent=False),
+        "--language", "de", "--select", "1", "--yes",
+    ])
     assert code == 2
-    assert "never shared" in capsys.readouterr().err
+    assert "no CLI agent is configured" in capsys.readouterr().err
+    assert fake_agent.calls() == []
+
+
+def test_dry_run_plans_without_a_configured_agent(project, fake_agent, fake_renderer, capsys):
+    project.add_app("Alpha")
+    code = main([
+        *base_args(project, fake_agent, fake_renderer, with_agent=False),
+        "--language", "de", "--all", "--dry-run",
+    ])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Agent          : (none configured)" in out
+    assert "dry run" in out
+    assert fake_agent.calls() == []
 
 
 def test_jobs_above_the_cap_is_rejected(project, fake_agent, fake_renderer, capsys):
@@ -261,77 +271,6 @@ def test_ctrl_c_during_a_batch_exits_130_and_keeps_finished_work(project, fake_a
     assert code == 130
     assert "interrupted" in out and "partial batch: ok 1" in out
     assert "finished:" in out
-
-
-def test_explicit_deepseek_choice_never_falls_back(project, fake_agent, fake_renderer, capsys):
-    fake_agent.steps([{"exit": 1, "stderr": "error: quota exceeded", "answer": "x"}])
-    project.add_app("Alpha")
-    code = main(
-        [
-            *base_args(project, fake_agent, fake_renderer),
-            "--language",
-            "de",
-            "--select",
-            "1",
-            "--yes",
-            "--model",
-            "deepseek",
-        ]
-    )
-    assert code == 1
-    calls = fake_agent.calls()
-    assert len(calls) == 1
-    assert calls[0]["argv"][calls[0]["argv"].index("--provider") + 1] == "deepseek"
-    assert calls[0]["argv"][calls[0]["argv"].index("--model") + 1] == "deepseek-v4-flash"
-
-
-def test_default_model_is_deepseek_flash(project, fake_agent, fake_renderer, capsys):
-    """No --model flag: DeepSeek Flash is chosen, and the plan says so."""
-    fake_agent.steps([{"answer": ANSWER}])
-    project.add_app("Alpha")
-    code = main([*base_args(project, fake_agent, fake_renderer), "--language", "de", "--select", "1", "--yes"])
-    out = capsys.readouterr().out
-    assert code == 0
-    assert "Model          : deepseek (default) - DeepSeek Flash only" in out
-    calls = fake_agent.calls()
-    assert len(calls) == 1
-    assert calls[0]["argv"][calls[0]["argv"].index("--provider") + 1] == "deepseek"
-    assert calls[0]["argv"][calls[0]["argv"].index("--model") + 1] == "deepseek-v4-flash"
-
-
-def test_default_model_never_falls_back_to_astra(project, fake_agent, fake_renderer, capsys):
-    """A quota failure on the default model fails the job instead of calling Astra."""
-    fake_agent.steps([{"exit": 1, "stderr": "error: quota exceeded for deepseek", "answer": "x"}])
-    project.add_app("Alpha")
-    code = main([*base_args(project, fake_agent, fake_renderer), "--language", "de", "--select", "1", "--yes"])
-    captured = capsys.readouterr()
-    assert code == 1
-    calls = fake_agent.calls()
-    assert len(calls) == 1
-    assert calls[0]["argv"][calls[0]["argv"].index("--provider") + 1] == "deepseek"
-    assert "Astra was unusable" not in captured.out
-
-
-def test_explicit_auto_choice_still_starts_on_astra(project, fake_agent, fake_renderer, capsys):
-    """--model auto keeps the old Astra-first policy with the Flash fallback."""
-    fake_agent.steps([{"answer": ANSWER}])
-    project.add_app("Alpha")
-    code = main(
-        [
-            *base_args(project, fake_agent, fake_renderer),
-            "--language",
-            "de",
-            "--select",
-            "1",
-            "--yes",
-            "--model",
-            "auto",
-        ]
-    )
-    assert code == 0
-    calls = fake_agent.calls()
-    assert calls[0]["argv"][calls[0]["argv"].index("--provider") + 1] == "openai-codex"
-    assert calls[0]["argv"][calls[0]["argv"].index("--model") + 1] == "gpt-6-astra"
 
 
 def test_unusable_posting_is_reported_as_a_warning(project, fake_agent, fake_renderer, capsys):

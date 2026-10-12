@@ -159,7 +159,7 @@ catalog.py      build the catalog from profile/inputs/current_<lang>.json + prof
 prompt.py       one system prompt + one user message with the candidate ids and the posting
         |
         v
-model.py        the CLI agent (default: prime-agent in headless JSON mode), one call per job
+model.py        the CLI agent (your configured [agent] command), one call per job
         |
         v
 build.py        validate the selected ids, rebuild the CV JSON from the fixed baseline
@@ -178,7 +178,7 @@ publish         place the PDF next to posting.txt; write the evidence into state
 |---|---|---|
 | `cv_batch/catalog.py` | Build the catalog and the identity. Read-only. | nothing |
 | `cv_batch/prompt.py` | Build the system prompt and the user message. The posting is data, and the system prompt says so. | nothing |
-| `cv_batch/model.py` | Build the agent command, run one headless call and read the answer. The shipped adapters: `prime-agent` (`-p --mode json`, skills/prompt templates/context files disabled, `--system-prompt`, `--session-dir state/sessions`, JSON event stream) and a generic command template for any other CLI agent. | session files, through the agent (`prime-agent` adapter only) |
+| `cv_batch/model.py` | Substitute `{prompt}`/`{system_prompt}` into the configured agent command, run one headless call and read the answer. No agent is built in; the `format` says whether the answer is the child's stdout (`text`) or `prime-agent`'s JSON event stream (`prime-agent-json`). | session files, only if the agent command writes any |
 | `cv_batch/build.py` | Validate the answer, then build the generator JSON from the input file. | nothing |
 | `cv_batch/render.py` | Run the renderer on a staging path and place the result without clobbering. | `state/staging/<job>/input.json` and the staged PDF |
 | `cv_batch/runner.py` | Own one job end to end and write the evidence. | `state/inputs/<slug>.json`, `state/runs/<stamp>-<slug>.json` |
@@ -376,14 +376,13 @@ pass `--overwrite`, and the old bytes are kept as
 
 ## Where state lives
 
-`state/` belongs to `./cv`, plus the two session directories that the built-in
-`prime-agent` adapter has the agent write. [layout](layout.md) lists every file
-and what is safe to delete.
+`state/` belongs to `./cv`. [layout](layout.md) lists every file and what is
+safe to delete.
 In short:
 
 * Safe to delete (history and scratch space): `state/runs/`,
-  `state/replaced/`, `state/staging/`, `state/session-artifacts/`.
+  `state/replaced/`, `state/staging/`.
 * Keep for reproducibility: `state/inputs/` (the exact generator JSON of the
-  newest accepted run) and `state/sessions/` (what the model was asked).
+  newest accepted run).
 
 `--state-dir` or `cv.toml [paths] state_dir` moves the whole directory.

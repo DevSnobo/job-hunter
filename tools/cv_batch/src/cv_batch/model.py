@@ -2,21 +2,24 @@
 
 The tool needs one thing from a CLI agent: given a system prompt and a user
 prompt, it prints the answer - one JSON object - so the tool can read it from
-the child's stdout.  Which agent that is, and how it is invoked, is an adapter
-detail.  Two adapters ship:
+the child's stdout.  Which agent that is, and how it is invoked, is config, not
+code: the command line lives in ``cv.toml`` ``[agent] command`` (or
+``$CV_AGENT_COMMAND`` / ``--agent-command``).  The command is one argument list;
+``{prompt}`` is replaced with the user prompt and is required, ``{system_prompt}``
+with the selector instructions when the template carries it (otherwise the
+instructions are prepended to the prompt).  Replacement is literal and per
+argument: no shell runs and the prompt is never split.
 
-* :class:`PrimeAgentAdapter` drives ``prime-agent -p --mode json`` and reads the
-  answer from its JSON event stream, plus the session id and the token usage.
-  It is the default, and the only adapter that uses the model policy and the
-  sessions described below.
-* :class:`CommandAgentAdapter` runs a user-supplied command template with
-  ``{prompt}`` (and ``{system_prompt}`` where the template carries it)
-  substituted, and reads the answer straight from stdout.  This is the seam for
-  any other CLI agent; select it with ``cv.toml [agent] command``,
-  ``$CV_AGENT_COMMAND`` or ``--agent-command``.
+Two answer formats exist, selected with ``cv.toml [agent] format``:
 
-The prime-agent contract, verified against the installed 0.9.8 ``--help`` and
-documentation:
+* ``text`` (the default): the answer - one JSON object - is the child's stdout.
+  Any CLI agent that prints its answer works.
+* ``prime-agent-json``: the child prints ``prime-agent``'s JSON event stream
+  (one JSON object per line), and the answer is read from the assistant events,
+  together with the session id and the token usage.
+
+The ``prime-agent-json`` contract, verified against the installed 0.9.8 ``--help``
+and documentation:
 
 * ``prime-agent -p --mode json -- <prompt>`` streams one JSON object per line.
   The first line is ``{"type":"session","version":3,"id":"<uuid>",...}``.
@@ -32,19 +35,10 @@ documentation:
   ``aborted``.  In JSON mode a failed or aborted assistant message still leaves
   the process exit code at 0, so the status must be read from the event, not
   from the exit code or from a keyword scan over unrelated prompt text.
-* Skills, prompt templates and context files are disabled with explicit flags;
-  ``--system-prompt`` replaces the harness system prompt, and the selector
-  prompt states that the model has no tools and must not use them.  prime-agent
-  0.10 removed ``--no-tools``, ``--no-builtin-tools`` and ``--no-extensions``
-  (the first two were silently ignored before, and the TS extension system is
-  gone) and offers no way to detach the built-in ``ipython`` tool, so a run has
-  that tool available; the strict JSON answer keeps the selector on task.
-  Sessions are written to a tool-owned ``--session-dir``.
-* ``--resume <id>`` continues an existing saved session; ``--session-dir`` must
-  point at the directory that holds it.  A missing or ambiguous selector is a
-  session problem (one fresh retry), never a provider problem.
 
-Nothing here invents flags, probes for quota or retries paid calls.
+Nothing here invents flags, probes for quota or retries paid calls.  The agent
+command is the user's own; ``cv.toml.example`` documents a working prime-agent
+command and alternatives.
 """
 
 from __future__ import annotations
@@ -60,45 +54,23 @@ from dataclasses import dataclass, field
 from typing import Callable, Sequence
 from pathlib import Path
 
-from .config import ASTRA_MODEL, ASTRA_PROVIDER, DEEPSEEK_MODEL, DEEPSEEK_PROVIDER
+#: Placeholders a command template may carry.
+PROMPT_PLACEHOLDER = "{prompt}"
+SYSTEM_PROMPT_PLACEHOLDER = "{system_prompt}"
+
+#: How the answer is read from the child's output.
+AGENT_FORMATS = ("text", "prime-agent-json")
 
 
-@dataclass(frozen=True)
-class ModelSpec:
-    name: str  # "astra" | "deepseek"
-    provider: str
-    model: str
+class ModelError(RuntimeError):
+    """A model call failed.  ``category`` names the kind of failure."""
 
-    @property
-    def selector(self) -> str:
-        return f"{self.provider}/{self.model}"
+    def __init__(self, message: str, *, category: str = "runtime") -> None:
+        super().__init__(message)
+        self.category = category
 
 
-ASTRA = ModelSpec("astra", ASTRA_PROVIDER, ASTRA_MODEL)
-DEEPSEEK = ModelSpec("deepseek", DEEPSEEK_PROVIDER, DEEPSEEK_MODEL)
-
-MODEL_CHOICES = ("auto", "astra", "deepseek")
-
-
-def initial_model(choice: str) -> ModelSpec:
-    """``auto`` starts with Astra; explicit choices are honoured as given."""
-    if choice == "deepseek":
-        return DEEPSEEK
-    return ASTRA
-
-
-#: Failure classes that justify switching from Astra to DeepSeek Flash.
-SWITCH_CLASSES = ("quota", "availability", "auth")
-
-#: Completed-assistant events, most authoritative first (installed 0.9.8).
-ASSISTANT_EVENT_PRIORITY = ("message_end", "turn_end", "agent_end")
-
-#: Assistant ``stopReason`` values that mean the call did not complete.
-FAILED_STOP_REASONS = ("error", "aborted")
-
-#: ``stopReason`` of a run cancelled by the user or by the CLI itself.
-ABORTED_STOP_REASON = "aborted"
-
+#: Recognised failure wording, for a useful one-line error message.
 _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # quota / rate limit / capacity
     ("quota", re.compile(r"quota", re.I)),
@@ -129,34 +101,14 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("auth", re.compile(r"invalid api key", re.I)),
     ("auth", re.compile(r"no (credentials|api key)", re.I)),
     ("auth", re.compile(r"re-?login", re.I)),
-    # session problems: never a model-quality problem, never a switch trigger.
-    # The last two patterns are the exact diagnostics of the installed 0.9.8
-    # release:
-    #   Error: No session found matching '<selector>'.
-    #   Open prime-agent and press left-arrow to browse sessions.
-    #   SessionSelectorError: Ambiguous saved session "<selector>": matches <id> ...
-    ("session", re.compile(r"(unknown|invalid|no such|missing)[^\n]{0,20}session", re.I)),
-    ("session", re.compile(r"session[^\n]{0,20}(not found|does not exist)", re.I)),
-    ("session", re.compile(r"no session found", re.I)),
-    ("session", re.compile(r"ambiguous saved session", re.I)),
-    ("session", re.compile(r"session[ _]?selector", re.I)),
-    ("session", re.compile(r"--resume", re.I)),
 ]
 
 
-class ModelError(RuntimeError):
-    """A model call failed.  ``category`` drives the fallback policy."""
-
-    def __init__(self, message: str, *, category: str = "runtime") -> None:
-        super().__init__(message)
-        self.category = category
-
-
 def classify_failure(text: str, *, timed_out: bool = False) -> str:
-    """Map process output to a failure category.
+    """Map process output to a failure category, for the error message.
 
-    Only recognised quota/availability/auth problems trigger the Astra -> Flash
-    switch; anything else stays ``runtime`` and is reported as a plain failure.
+    This only names the problem (``quota``, ``availability``, ``auth``,
+    ``runtime``); the tool never retries or switches models on it.
     """
     if timed_out:
         return "timeout"
@@ -201,9 +153,7 @@ class Usage:
 class ModelRun:
     """Everything one agent call produced."""
 
-    spec: ModelSpec | None
     label: str
-    agent: str
     text: str
     session_id: str | None
     usage: Usage
@@ -212,45 +162,9 @@ class ModelRun:
     stderr: str
     duration: float
     event_count: int
-    answer_source: str  # "json-events" | "raw-stdout"
-    resumed: bool
+    answer_source: str  # "json-events" | "stdout"
     stop_reason: str | None = None  # final assistant stopReason, e.g. "stop"
     command: list[str] = field(default_factory=list)
-
-
-def build_command(
-    *,
-    exe: str,
-    spec: ModelSpec,
-    prompt: str,
-    session_dir: Path | None,
-    resume_id: str | None,
-    system_prompt: str,
-    thinking: str | None = None,
-    no_session: bool = False,
-) -> list[str]:
-    """Argument array for one headless prime-agent call (no shell interpolation)."""
-    argv: list[str] = [exe, "-p", "--mode", "json"]
-    argv += ["--provider", spec.provider, "--model", spec.model]
-    if thinking:
-        argv += ["--thinking", thinking]
-    # 0.10 removed --no-tools and --no-builtin-tools (they were already silently
-    # ignored) and --no-extensions (the extension system is gone); passing any of
-    # them now fails as an unknown option.
-    argv += [
-        "--no-skills",
-        "--no-prompt-templates",
-        "--no-context-files",
-    ]
-    if no_session:
-        argv.append("--no-session")
-    else:
-        if session_dir is not None:
-            argv += ["--session-dir", str(session_dir)]
-        if resume_id:
-            argv += ["--resume", resume_id]
-    argv += ["--system-prompt", system_prompt, "--", prompt]
-    return argv
 
 
 def _usage_from(message: dict) -> Usage:
@@ -294,7 +208,7 @@ def _text_from(message: dict) -> str:
 
 @dataclass
 class ParsedStream:
-    """What one JSON event stream told us about the run.
+    """What one event stream told us about the run.
 
     ``text``/``usage``/``stop_reason`` come from the canonical assistant event
     (see :data:`ASSISTANT_EVENT_PRIORITY`); ``error_signals`` collects only
@@ -311,6 +225,15 @@ class ParsedStream:
     error_message: str | None = None
     error_signals: list[str] = field(default_factory=list)
 
+
+#: Completed-assistant events, most authoritative first (installed 0.9.8).
+ASSISTANT_EVENT_PRIORITY = ("message_end", "turn_end", "agent_end")
+
+#: Assistant ``stopReason`` values that mean the call did not complete.
+FAILED_STOP_REASONS = ("error", "aborted")
+
+#: ``stopReason`` of a run cancelled by the user or by the CLI itself.
+ABORTED_STOP_REASON = "aborted"
 
 #: Event fields that carry a machine-readable error string.
 _ERROR_FIELDS = ("errorMessage", "finalError", "error", "reason", "detail")
@@ -447,145 +370,40 @@ def parse_events(stdout: str) -> ParsedStream:
     )
 
 
-def parse_stream(stdout: str) -> tuple[str, str | None, Usage, int]:
-    """Backwards-compatible view of :func:`parse_events`."""
-    parsed = parse_events(stdout)
-    return parsed.text, parsed.session_id, parsed.usage, parsed.events
-
-
-#: Placeholders a command template may carry (see :class:`CommandAgentAdapter`).
-PROMPT_PLACEHOLDER = "{prompt}"
-SYSTEM_PROMPT_PLACEHOLDER = "{system_prompt}"
-
-
 class AgentAdapter:
-    """One way to invoke a CLI agent (see the module docstring).
+    """One configured CLI agent (see the module docstring).
 
-    The runner holds one adapter and asks it for the command line and for the
-    way to read the answer.  ``uses_model_policy`` and ``uses_sessions`` say
-    whether the ``--model`` policy and the session modes apply to it.
+    ``command`` is the full argument list from ``cv.toml`` ``[agent] command``;
+    ``format`` says how the answer is read from the child's output.
     """
 
-    name = "agent"
-    uses_model_policy = False
-    uses_sessions = False
-
-    def describe(self) -> str:
-        """One line naming the agent, for the plan and the confirm prompt."""
-        raise NotImplementedError
-
-    def label(self, spec: "ModelSpec | None") -> str:
-        """Short label recorded in the run evidence and the report."""
-        raise NotImplementedError
-
-    def build_command(
-        self,
-        *,
-        spec: "ModelSpec | None",
-        prompt: str,
-        system_prompt: str,
-        session_dir: Path | None,
-        resume_id: str | None,
-        no_session: bool,
-        thinking: str | None,
-    ) -> list[str]:
-        raise NotImplementedError
-
-    def parse(self, stdout: str) -> ParsedStream:
-        raise NotImplementedError
-
-    def failure_signals(self, stdout: str, stderr: str, parsed: ParsedStream) -> str:
-        raise NotImplementedError
-
-
-class PrimeAgentAdapter(AgentAdapter):
-    """The default adapter: ``prime-agent`` in headless JSON mode."""
-
-    name = "prime-agent"
-    uses_model_policy = True
-    uses_sessions = True
-
-    def __init__(self, exe: str = "prime-agent") -> None:
-        self.exe = exe
-
-    def describe(self) -> str:
-        return self.exe
-
-    def label(self, spec: "ModelSpec | None") -> str:
-        return spec.selector if spec is not None else self.exe
-
-    def build_command(
-        self,
-        *,
-        spec: "ModelSpec | None",
-        prompt: str,
-        system_prompt: str,
-        session_dir: Path | None,
-        resume_id: str | None,
-        no_session: bool,
-        thinking: str | None,
-    ) -> list[str]:
-        return build_command(
-            exe=self.exe,
-            spec=spec,
-            prompt=prompt,
-            session_dir=session_dir,
-            resume_id=resume_id,
-            system_prompt=system_prompt,
-            thinking=thinking,
-            no_session=no_session,
-        )
-
-    def parse(self, stdout: str) -> ParsedStream:
-        return parse_events(stdout)
-
-    def failure_signals(self, stdout: str, stderr: str, parsed: ParsedStream) -> str:
-        return _failure_signal(stdout, stderr, parsed)
-
-
-class CommandAgentAdapter(AgentAdapter):
-    """Any other CLI agent, driven by a command template.
-
-    The template is one command as a list of arguments.  ``{prompt}`` is
-    replaced with the user prompt and is required.  ``{system_prompt}`` is
-    replaced with the system prompt when the template carries it; otherwise the
-    system prompt is prepended to the user prompt, so an agent without a
-    system-prompt option still receives the instructions.  Replacement is
-    literal and per argument: no shell runs and the prompt is never split.
-
-    The command must print the answer - one JSON object - on stdout.  Token
-    usage, sessions and the model policy do not exist for this adapter.
-    """
-
-    name = "command"
-    uses_model_policy = False
-    uses_sessions = False
-
-    def __init__(self, command: Sequence[str]) -> None:
+    def __init__(self, command: Sequence[str], *, format: str = "text") -> None:
         parts = tuple(str(part) for part in command)
         if not parts:
             raise ValueError("the agent command must not be empty")
         if not any(PROMPT_PLACEHOLDER in part for part in parts):
             raise ValueError(f"the agent command must contain {PROMPT_PLACEHOLDER}")
+        if format not in AGENT_FORMATS:
+            raise ValueError(f"unknown agent format {format!r}; choose from {AGENT_FORMATS!r}")
         self.command = parts
+        self.format = format
+
+    @property
+    def name(self) -> str:
+        """Short agent name: the program name of the command."""
+        first = self.command[0]
+        return os.path.basename(first) or first
 
     def describe(self) -> str:
+        """The full command line, for the plan and the confirm prompt."""
         return " ".join(shlex.quote(part) for part in self.command)
 
-    def label(self, spec: "ModelSpec | None") -> str:
-        return os.path.basename(self.command[0]) or self.command[0]
+    def label(self) -> str:
+        """Short label recorded in the run evidence and the report."""
+        return self.name
 
-    def build_command(
-        self,
-        *,
-        spec: "ModelSpec | None" = None,
-        prompt: str,
-        system_prompt: str,
-        session_dir: Path | None = None,
-        resume_id: str | None = None,
-        no_session: bool = False,
-        thinking: str | None = None,
-    ) -> list[str]:
+    def build_command(self, *, prompt: str, system_prompt: str) -> list[str]:
+        """Substitute the placeholders of the command template (never a shell)."""
         if any(SYSTEM_PROMPT_PLACEHOLDER in part for part in self.command):
             replacements = {PROMPT_PLACEHOLDER: prompt, SYSTEM_PROMPT_PLACEHOLDER: system_prompt}
         else:
@@ -598,6 +416,8 @@ class CommandAgentAdapter(AgentAdapter):
         return argv
 
     def parse(self, stdout: str) -> ParsedStream:
+        if self.format == "prime-agent-json":
+            return parse_events(stdout)
         return ParsedStream(text=(stdout or "").strip(), source="stdout")
 
     def failure_signals(self, stdout: str, stderr: str, parsed: ParsedStream) -> str:
@@ -605,15 +425,10 @@ class CommandAgentAdapter(AgentAdapter):
 
 
 def run_model(
-    adapter: AgentAdapter,
+    agent: AgentAdapter,
     *,
-    spec: "ModelSpec | None" = None,
     prompt: str,
     system_prompt: str,
-    session_dir: Path | None = None,
-    resume_id: str | None = None,
-    no_session: bool = False,
-    thinking: str | None = None,
     timeout: float = 240.0,
     cwd: Path | None = None,
     on_start: Callable[[subprocess.Popen], None] | None = None,
@@ -624,16 +439,8 @@ def run_model(
     ``on_start``/``on_end`` let the caller track the live child process so a
     cancelled batch can terminate it cleanly.
     """
-    label = adapter.label(spec)
-    argv = adapter.build_command(
-        spec=spec,
-        prompt=prompt,
-        system_prompt=system_prompt,
-        session_dir=session_dir,
-        resume_id=resume_id,
-        no_session=no_session,
-        thinking=thinking,
-    )
+    label = agent.label()
+    argv = agent.build_command(prompt=prompt, system_prompt=system_prompt)
     started = time.monotonic()
     env = dict(os.environ)
     env.setdefault("NO_COLOR", "1")
@@ -660,10 +467,8 @@ def run_model(
     try:
         return _finish(
             process,
-            adapter=adapter,
-            spec=spec,
+            agent=agent,
             label=label,
-            resume_id=resume_id,
             timeout=timeout,
             started=started,
             command=argv,
@@ -676,10 +481,8 @@ def run_model(
 def _finish(
     process: subprocess.Popen,
     *,
-    adapter: AgentAdapter,
-    spec: ModelSpec | None,
+    agent: AgentAdapter,
     label: str,
-    resume_id: str | None,
     timeout: float,
     started: float,
     command: list[str],
@@ -700,7 +503,7 @@ def _finish(
         ) from None
 
     duration = time.monotonic() - started
-    parsed = adapter.parse(stdout or "")
+    parsed = agent.parse(stdout or "")
     answer = parsed.text
     source = parsed.source
     if not answer.strip():
@@ -710,7 +513,7 @@ def _finish(
 
     # Only structured error fields, stderr, and (for a non-event stream) the raw
     # stdout are classified.  Assistant prose and the echoed prompt never are.
-    signal_text = adapter.failure_signals(stdout or "", stderr or "", parsed)
+    signal_text = agent.failure_signals(stdout or "", stderr or "", parsed)
 
     if process.returncode != 0:
         category = classify_failure(signal_text, timed_out=timed_out)
@@ -749,9 +552,7 @@ def _finish(
         raise ModelError(f"{label} produced no answer: {detail}", category=category)
 
     return ModelRun(
-        spec=spec,
         label=label,
-        agent=adapter.name,
         text=answer,
         session_id=parsed.session_id,
         usage=parsed.usage,
@@ -761,7 +562,6 @@ def _finish(
         duration=duration,
         event_count=parsed.events,
         answer_source=source,
-        resumed=bool(resume_id),
         stop_reason=parsed.stop_reason,
         command=command,
     )
@@ -815,26 +615,17 @@ def _first_meaningful_line(text: str) -> str:
 
 __all__ = [
     "ABORTED_STOP_REASON",
+    "AGENT_FORMATS",
     "ASSISTANT_EVENT_PRIORITY",
-    "ASTRA",
     "AgentAdapter",
-    "CommandAgentAdapter",
-    "DEEPSEEK",
     "FAILED_STOP_REASONS",
-    "MODEL_CHOICES",
     "ModelError",
     "ModelRun",
-    "ModelSpec",
     "PROMPT_PLACEHOLDER",
     "ParsedStream",
-    "PrimeAgentAdapter",
-    "SWITCH_CLASSES",
     "SYSTEM_PROMPT_PLACEHOLDER",
     "Usage",
-    "build_command",
     "classify_failure",
-    "initial_model",
     "parse_events",
-    "parse_stream",
     "run_model",
 ]

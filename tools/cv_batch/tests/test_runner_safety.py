@@ -1,6 +1,5 @@
 """Pipeline safety regressions: fallback race, renderer output, evidence, path swaps.
 
-F3  parallel Astra failures must both retry once onto DeepSeek Flash.
 F6  a renderer that exits 0 with junk/empty output is a failure, never a target.
 F7  evidence is written atomically before placement and rolled back on failure.
 F8  swapped postings/folders fail safely instead of reaching the provider.
@@ -47,36 +46,6 @@ def scanned_job(project, folder: str, language: str = "de") -> JobSpec:
 
 def target_of(project, folder: str, language: str = "de") -> Path:
     return target_path(project.applications / folder, language)
-
-
-# --------------------------------------------------------------------- F3
-def test_simultaneous_astra_failures_both_retry_onto_deepseek_flash(project, fake_agent, fake_renderer):
-    """Barrier test: both parallel workers fail on Astra at the same time (F3)."""
-    quota = {"exit": 1, "stderr": "error: quota exceeded for openai-codex", "answer": "x"}
-    fake_agent.steps(
-        [
-            {**quota, "barrier": 2},
-            {**quota, "barrier": 2},
-            {"answer": VALID_ANSWER},
-            {"answer": VALID_ANSWER},
-        ]
-    )
-    runner = make_runner(project, fake_agent, fake_renderer)
-    jobs = [job_for(project, "Race One"), job_for(project, "Race Two")]
-
-    summary = run_batch(runner, jobs, parallel=2, log=lambda *_: None)
-
-    assert [result.status for result in summary.results] == [OK, OK], [
-        result.message for result in summary.results
-    ]
-    calls = fake_agent.calls()
-    assert len(calls) == 4, "the fallback retry must stay bounded at one per job"
-    primary = [call["argv"][call["argv"].index("--model") + 1] for call in calls[:2]]
-    fallback = [call["argv"][call["argv"].index("--model") + 1] for call in calls[2:]]
-    assert primary == ["gpt-6-astra", "gpt-6-astra"]
-    assert fallback == ["deepseek-v4-flash", "deepseek-v4-flash"]
-    assert runner.models.astra_exhausted is True
-    assert "deepseek-v4-pro" not in " ".join(" ".join(call["argv"]) for call in calls)
 
 
 # --------------------------------------------------------------------- F6

@@ -8,6 +8,7 @@ identity and the ``target_template`` constant instead of a hard-coded name.
 from __future__ import annotations
 
 import json
+import shlex
 import shutil
 import sys
 from dataclasses import dataclass, field
@@ -16,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from cv_batch.config import DEFAULT_TARGET_TEMPLATE, TargetNaming, name_slug
+from cv_batch.model import AgentAdapter
 
 TESTS_DIR = Path(__file__).resolve().parent
 FAKES = TESTS_DIR / "fakes"
@@ -366,6 +368,24 @@ def fake_renderer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeRender
     renderer = FakeRenderer(tmp_path / "render-scenario")
     monkeypatch.setenv("FAKE_RENDER_SCENARIO", str(renderer.directory))
     return renderer
+
+
+def prime_agent_command(exe) -> str:
+    """A shell-style command for a fake prime-agent-style executable.
+
+    The tool runs it verbatim (shlex-split); the fake reads its scenario from the
+    environment and ignores its argv, so only the shape has to be plausible.
+    """
+    parts = [str(exe), "-p", "--mode", "json", "--system-prompt", "{system_prompt}", "--", "{prompt}"]
+    return " ".join(part if part.startswith("{") else shlex.quote(part) for part in parts)
+
+
+def prime_agent_adapter(exe) -> AgentAdapter:
+    """The same command as an argument list, for tests that build a Runner directly."""
+    return AgentAdapter(
+        [str(exe), "-p", "--mode", "json", "--system-prompt", "{system_prompt}", "--", "{prompt}"],
+        format="prime-agent-json",
+    )
 
 
 def selection_answer(entry_ids: dict[str, list[str]], headline: str | None = None) -> str:

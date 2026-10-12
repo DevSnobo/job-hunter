@@ -33,11 +33,6 @@ target_template = "CV_{name}_{language}_{folder}.pdf"
 # not change it.  A value here overrides the profile for every CV.
 headline = ""
 
-# The model policy for `--model` of the built-in prime-agent adapter.  Allowed:
-# auto | astra | deepseek.  Default: "deepseek" = DeepSeek Flash only, never Pro.
-# A custom `[agent] command` (below) has no model policy and ignores this key.
-model = "deepseek"
-
 # The languages `--language` accepts, in prompt order.  Default: ["de", "en"].
 languages = ["de", "en"]
 
@@ -60,15 +55,40 @@ state_dir = "state"
 backlog_de = "profile/backlogs/career-knowledge-backlog-DE.md"
 backlog_en = "profile/backlogs/career-knowledge-backlog-EN.md"
 
-# How the tool invokes the CLI agent.  Omit this table to use the built-in
-# prime-agent adapter.  Set `command` to drive any other CLI agent instead: the
-# command receives {prompt}, and {system_prompt} when the template names it
-# (otherwise the instructions are prepended to the prompt), and must print the
-# answer JSON on stdout.  A custom command has no model policy and no sessions.
-# The environment `$CV_AGENT_COMMAND` and the flag `--agent-command` override it.
-# Example:
+# How the tool invokes the CLI agent that picks the CV content.  Nothing about
+# an agent is built in: `command` is exactly what the tool runs, and a real run
+# refuses to start without it (`--dry-run` still works, and never calls an
+# agent).  The command is one argument list:
+#
+#   {prompt}         replaced with the user prompt (required)
+#   {system_prompt}  replaced with the selector instructions, when the command
+#                    names it (otherwise the instructions are prepended to the
+#                    prompt)
+#
+# No shell runs, and the prompt is never split.  `format` says how the answer is
+# read: "text" (default) takes the child's stdout as the answer; and
+# "prime-agent-json" reads prime-agent's JSON event stream, which also records
+# the session id and the token usage.  `--agent-command` / $CV_AGENT_COMMAND and
+# `--agent-format` / $CV_AGENT_FORMAT override both.
+#
+# Any CLI agent works - for example Claude Code, which prints the answer to
+# stdout with `-p`:
+#
 #     [agent]
-#     command = ["claude", "-p", "{prompt}"]
+#     format = "text"
+#     command = ["claude", "-p", "--append-system-prompt", "{system_prompt}", "{prompt}"]
+#
+# This tool was developed against prime-agent; the same thing in its JSON mode
+# (usage and sessions come from `format = "prime-agent-json"`):
+#
+#     [agent]
+#     format = "prime-agent-json"
+#     command = [
+#       "prime-agent", "-p", "--mode", "json",
+#       "--provider", "deepseek", "--model", "deepseek-v4-flash",
+#       "--no-skills", "--no-prompt-templates", "--no-context-files",
+#       "--system-prompt", "{system_prompt}", "--", "{prompt}",
+#     ]
 
 [limits]
 # Upper bounds; the matching CLI flags override them and are validated against

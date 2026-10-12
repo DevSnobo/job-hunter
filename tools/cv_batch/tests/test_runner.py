@@ -11,11 +11,16 @@ import pytest
 from cv_batch.apps import classify_target
 from cv_batch.config import build_paths
 from cv_batch.prompt import Limits
-from cv_batch.model import PrimeAgentAdapter
 from cv_batch.runner import FAILED, OK, SKIPPED, JobSpec, Runner, run_batch
-from cv_batch.sessions import ModelPolicy, SessionPolicy
 
-from conftest import el_entry_id, selection_answer, sp_entry_id, target_name, target_path
+from conftest import (
+    el_entry_id,
+    prime_agent_adapter,
+    selection_answer,
+    sp_entry_id,
+    target_name,
+    target_path,
+)
 
 EL = el_entry_id()
 SP = sp_entry_id()
@@ -29,8 +34,6 @@ def make_runner(
     fake_renderer=None,
     *,
     language="de",
-    model="auto",
-    session_mode="fresh",
     allow_replace_invalid=False,
     allow_overwrite=False,
     trimming=True,
@@ -46,9 +49,7 @@ def make_runner(
     return Runner(
         paths=paths,
         language=language,
-        model_policy=ModelPolicy(model),
-        session_policy=SessionPolicy(session_mode, paths.sessions),
-        agent=PrimeAgentAdapter(fake_agent.exe),
+        agent=prime_agent_adapter(fake_agent.exe),
         generator_exe=fake_renderer.exe if fake_renderer else None,
         layout=layout,
         limits=Limits(max_bullets_per_entry=5, max_bullets_total=13, max_headline=60),
@@ -99,7 +100,8 @@ def test_happy_path_writes_exactly_one_pdf_next_to_the_posting(project, fake_age
     assert saved["selection"]["experience"][0]["bullets"][0]["id"] == f"{EL}/el1-short"
     assert saved["job"]["folder"] == "Vertex GmbH"
     assert saved["layout"] == "classic"  # additive: how the PDF was produced
-    assert saved["model"]["selector"] == "openai-codex/gpt-6-astra"
+    assert saved["agent"]["answer_source"] == "json-events"
+    assert saved["agent"]["command"][0].endswith("fake_agent.py")
     assert list(project.state.glob("runs/*.json"))
     assert list(project.state.glob("staging/*")) == []
 
@@ -333,118 +335,6 @@ def test_prompt_is_bounded_and_excludes_source_url_and_tool_instructions(project
     system = argv[argv.index("--system-prompt") + 1]
     assert "untrusted data" in system
     assert "no markdown fences" in system
-    for flag in ("--no-skills", "--no-prompt-templates", "--no-context-files"):
-        assert flag in argv
-    for gone in ("--no-tools", "--no-builtin-tools", "--no-extensions"):
-        assert gone not in argv
-
-
-def test_quota_failure_switches_to_deepseek_flash_for_the_rest_of_the_batch(project, fake_agent, fake_renderer):
-    fake_agent.steps(
-        [
-            {"exit": 1, "stderr": "error: quota exceeded for openai-codex", "answer": "ignored"},
-            {"answer": VALID_ANSWER},
-        ]
-    )
-    messages: list[str] = []
-    runner = make_runner(project, fake_agent, fake_renderer, log=messages.append)
-    jobs = [job_for(project, "Kappa"), job_for(project, "Lambda")]
-
-    summary = run_batch(runner, jobs, parallel=1, log=messages.append)
-
-    assert [result.status for result in summary.results] == [OK, OK]
-    calls = fake_agent.calls()
-    assert len(calls) == 3
-    providers = [call["argv"][call["argv"].index("--provider") + 1] for call in calls]
-    models = [call["argv"][call["argv"].index("--model") + 1] for call in calls]
-    assert providers == ["openai-codex", "deepseek", "deepseek"]
-    assert models == ["gpt-6-astra", "deepseek-v4-flash", "deepseek-v4-flash"]
-    assert "deepseek-v4-pro" not in " ".join(" ".join(call["argv"]) for call in calls)
-    assert runner.models.astra_exhausted is True
-    assert any("switching to" in message for message in messages)
-
-
-def test_unusable_resume_falls_back_to_a_fresh_session_once(project, fake_agent, fake_renderer):
-    fake_agent.steps(
-        [
-            {"answer": VALID_ANSWER, "session_id": "sess-A"},
-            {"exit": 1, "stderr": "error: unknown session id sess-A", "answer": "x"},
-            {"answer": VALID_ANSWER, "session_id": "sess-B"},
-        ]
-    )
-    messages: list[str] = []
-    runner = make_runner(project, fake_agent, fake_renderer, session_mode="reuse", log=messages.append)
-    jobs = [job_for(project, "Resume One"), job_for(project, "Resume Two")]
-
-    summary = run_batch(runner, jobs, parallel=1, log=messages.append)
-
-    assert [result.status for result in summary.results] == [OK, OK]
-    calls = fake_agent.calls()
-    assert len(calls) == 3
-    assert "--resume" not in calls[0]["argv"]
-    assert calls[1]["argv"][calls[1]["argv"].index("--resume") + 1] == "sess-A"
-    assert "--resume" not in calls[2]["argv"]
-    assert any("fresh session" in message for message in messages)
-    assert runner.models.astra_exhausted is False
-
-
-def test_generic_failure_does_not_switch_models(project, fake_agent, fake_renderer):
-    fake_agent.steps([{"exit": 1, "stderr": "error: could not parse provider response", "answer": "x"}])
-    runner = make_runner(project, fake_agent, fake_renderer)
-    job = job_for(project, "Mu")
-
-    result = runner.run_job(job)
-
-    assert result.status == FAILED
-    calls = fake_agent.calls()
-    assert len(calls) == 1
-    assert calls[0]["argv"][calls[0]["argv"].index("--provider") + 1] == "openai-codex"
-    assert runner.models.astra_exhausted is False
-
-
-def test_parallel_jobs_use_separate_fresh_sessions(project, fake_agent, fake_renderer):
-    fake_agent.steps([{"answer": VALID_ANSWER}])
-    runner = make_runner(project, fake_agent, fake_renderer)
-    jobs = [job_for(project, f"Parallel {index}") for index in range(3)]
-
-    summary = run_batch(runner, jobs, parallel=3, log=lambda *_: None)
-
-    assert [result.status for result in summary.results] == [OK, OK, OK]
-    calls = fake_agent.calls()
-    assert len(calls) == 3
-    assert all("--resume" not in call["argv"] for call in calls)
-    session_dirs = {call["argv"][call["argv"].index("--session-dir") + 1] for call in calls}
-    assert session_dirs == {str(project.state / "sessions")}
-    assert all(Path(entry).is_relative_to(project.state) for entry in session_dirs)
-
-
-def test_reuse_mode_resumes_one_explicit_tool_owned_session_sequentially(project, fake_agent, fake_renderer):
-    fake_agent.steps(
-        [
-            {"answer": VALID_ANSWER, "session_id": "sess-A"},
-            {"answer": VALID_ANSWER, "session_id": "sess-B"},
-        ]
-    )
-    runner = make_runner(project, fake_agent, fake_renderer, session_mode="reuse")
-    jobs = [job_for(project, "Reuse One"), job_for(project, "Reuse Two")]
-
-    summary = run_batch(runner, jobs, parallel=1, log=lambda *_: None)
-
-    assert [result.status for result in summary.results] == [OK, OK]
-    calls = fake_agent.calls()
-    assert "--resume" not in calls[0]["argv"]
-    assert calls[1]["argv"][calls[1]["argv"].index("--resume") + 1] == "sess-A"
-    assert summary.results[1].resumed is True
-
-
-def test_none_session_mode_passes_no_session(project, fake_agent, fake_renderer):
-    fake_agent.steps([{"answer": VALID_ANSWER}])
-    runner = make_runner(project, fake_agent, fake_renderer, session_mode="none")
-    job = job_for(project, "NoSession")
-
-    assert runner.run_job(job).status == OK
-    argv = fake_agent.calls()[0]["argv"]
-    assert "--no-session" in argv and "--session-dir" not in argv
 
 
 def test_failures_do_not_stop_the_remaining_jobs(project, fake_agent, fake_renderer):

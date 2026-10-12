@@ -1,111 +1,149 @@
+"""The generic agent adapter: command template, answer formats and failures.
+
+The prime-agent JSON event stream is covered separately in
+``test_model_events.py``.
+"""
+
+from __future__ import annotations
+
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
 from cv_batch.model import (
-    ASTRA,
-    DEEPSEEK,
+    AGENT_FORMATS,
+    AgentAdapter,
     ModelError,
-    PrimeAgentAdapter,
     Usage,
-    build_command,
     classify_failure,
-    parse_stream,
     run_model,
 )
 
+FAKES = Path(__file__).resolve().parent / "fakes"
 SYSTEM = "You are a selector."
 
 
-def test_build_command_disables_skills_templates_and_context(tmp_path):
-    argv = build_command(
-        exe="prime-agent",
-        spec=ASTRA,
-        prompt="PROMPT",
-        session_dir=tmp_path,
-        resume_id=None,
-        system_prompt=SYSTEM,
-    )
-    assert argv[0] == "prime-agent"
-    assert argv[1:3] == ["-p", "--mode"]
-    assert argv[3] == "json"
-    assert argv[argv.index("--provider") + 1] == "openai-codex"
-    assert argv[argv.index("--model") + 1] == "gpt-6-astra"
-    for flag in (
-        "--no-skills",
-        "--no-prompt-templates",
-        "--no-context-files",
-    ):
-        assert flag in argv
-    # prime-agent 0.10 removed these; passing them fails as unknown options.
-    for gone in ("--no-tools", "--no-builtin-tools", "--no-extensions"):
-        assert gone not in argv
-    assert argv[argv.index("--session-dir") + 1] == str(tmp_path)
-    assert argv[argv.index("--system-prompt") + 1] == SYSTEM
-    assert argv[-2] == "--" and argv[-1] == "PROMPT"
-    assert "--resume" not in argv
-    assert "--no-session" not in argv
-    assert "-c" not in argv and "--continue" not in argv  # never touch the user's sessions
-
-
-def test_build_command_session_variants(tmp_path):
-    resumed = build_command(
-        exe="prime-agent",
-        spec=DEEPSEEK,
-        prompt="p",
-        session_dir=tmp_path,
-        resume_id="abc123",
-        system_prompt=SYSTEM,
-    )
-    assert resumed[resumed.index("--resume") + 1] == "abc123"
-    assert resumed[resumed.index("--model") + 1] == "deepseek-v4-flash"
-    assert resumed[resumed.index("--provider") + 1] == "deepseek"
-
-    plain = build_command(
-        exe="prime-agent",
-        spec=DEEPSEEK,
-        prompt="p",
-        session_dir=tmp_path,
-        resume_id=None,
-        system_prompt=SYSTEM,
-        no_session=True,
-    )
-    assert "--no-session" in plain
-    assert "--session-dir" not in plain
-    assert "deepseek-v4-pro" not in " ".join(plain)
-
-
-def test_parse_stream_collects_answer_session_and_usage():
-    lines = [
-        json.dumps({"type": "session", "version": 3, "id": "sess-1"}),
-        json.dumps({"type": "agent_start"}),
-        json.dumps(
-            {
-                "type": "message_end",
-                "message": {
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": '{"a": 1}'}],
-                    "usage": {
-                        "input": 10,
-                        "output": 4,
-                        "cacheRead": 2,
-                        "cacheWrite": 1,
-                        "totalTokens": 17,
-                        "cost": {"total": 0.5},
-                    },
-                },
-            }
-        ),
-        "not json at all",
-        json.dumps({"type": "agent_end", "messages": []}),
+def test_template_substitutes_prompt_and_system_prompt():
+    adapter = AgentAdapter(["my-agent", "--system", "{system_prompt}", "{prompt}"])
+    assert adapter.build_command(prompt="TASK", system_prompt="SYS") == [
+        "my-agent",
+        "--system",
+        "SYS",
+        "TASK",
     ]
-    text, session, usage, events = parse_stream("\n".join(lines))
-    assert text == '{"a": 1}'
-    assert session == "sess-1"
-    assert (usage.input, usage.output, usage.cache_read, usage.total) == (10, 4, 2, 17)
-    assert usage.cost == 0.5
-    assert events == 4
+
+
+def test_template_without_a_system_slot_prepends_the_instructions():
+    adapter = AgentAdapter(["my-agent", "{prompt}"])
+    assert adapter.build_command(prompt="TASK", system_prompt="SYS") == ["my-agent", "SYS\n\nTASK"]
+
+
+def test_the_command_must_carry_a_prompt_placeholder():
+    with pytest.raises(ValueError):
+        AgentAdapter(["my-agent", "--print"])
+    with pytest.raises(ValueError):
+        AgentAdapter([])
+
+
+def test_the_format_must_be_known():
+    with pytest.raises(ValueError):
+        AgentAdapter(["my-agent", "{prompt}"], format="rpc")
+
+
+def test_name_and_description_name_the_program():
+    adapter = AgentAdapter(["/usr/local/bin/my-agent", "--go", "{prompt}"])
+    assert adapter.name == "my-agent"
+    assert adapter.label() == "my-agent"
+    assert adapter.describe() == "/usr/local/bin/my-agent --go '{prompt}'"
+    assert adapter.format == "text"
+    assert AGENT_FORMATS == ("text", "prime-agent-json")
+
+
+def test_the_text_format_takes_stdout_and_the_json_format_parses_events():
+    plain = AgentAdapter(["my-agent", "{prompt}"])
+    parsed = plain.parse("  the answer  \n")
+    assert parsed.text == "the answer" and parsed.source == "stdout"
+    events = AgentAdapter(["my-agent", "{prompt}"], format="prime-agent-json")
+    line = json.dumps(
+        {"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": "x"}]}}
+    )
+    assert events.parse(line).text == "x"
+
+
+def command_adapter(tmp_path: Path, *, answer: str, exit_code: int = 0, stderr: str = "", sleep: float = 0.0):
+    """A text-format adapter backed by the fake command agent."""
+    scenario = tmp_path / "scenario.json"
+    scenario.write_text(
+        json.dumps({"answer": answer, "exit": exit_code, "stderr": stderr, "sleep": sleep}),
+        encoding="utf-8",
+    )
+    return AgentAdapter(
+        [
+            sys.executable,
+            str(FAKES / "fake_command_agent.py"),
+            "--scenario",
+            str(scenario),
+            "--system-prompt",
+            "{system_prompt}",
+            "{prompt}",
+        ]
+    )
+
+
+def calls(tmp_path: Path) -> list[dict]:
+    path = tmp_path / "calls.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def test_run_model_reads_the_answer_from_stdout(tmp_path):
+    adapter = command_adapter(tmp_path, answer='{"experience": []}')
+    run = run_model(adapter, prompt="PROMPT", system_prompt=SYSTEM, timeout=10)
+    assert run.text == '{"experience": []}'
+    assert run.answer_source == "stdout"
+    assert run.label == Path(sys.executable).name
+    assert run.session_id is None
+    assert run.usage.empty
+    assert calls(tmp_path)[0]["prompt"] == "PROMPT"
+    assert calls(tmp_path)[0]["system_prompt"] == SYSTEM
+
+
+def test_run_model_classifies_a_failed_command(tmp_path):
+    adapter = command_adapter(tmp_path, answer="", exit_code=1, stderr="error: quota exceeded")
+    with pytest.raises(ModelError) as excinfo:
+        run_model(adapter, prompt="P", system_prompt=SYSTEM, timeout=10)
+    assert excinfo.value.category == "quota"
+
+
+def test_run_model_plain_failure_is_runtime(tmp_path):
+    adapter = command_adapter(tmp_path, answer="", exit_code=1, stderr="error: invalid JSON in model output")
+    with pytest.raises(ModelError) as excinfo:
+        run_model(adapter, prompt="P", system_prompt=SYSTEM, timeout=10)
+    assert excinfo.value.category == "runtime"
+
+
+def test_run_model_empty_output_is_invalid_output(tmp_path):
+    adapter = command_adapter(tmp_path, answer="", exit_code=0)
+    with pytest.raises(ModelError) as excinfo:
+        run_model(adapter, prompt="P", system_prompt=SYSTEM, timeout=10)
+    assert excinfo.value.category == "invalid_output"
+
+
+def test_run_model_timeout_kills_the_child(tmp_path):
+    adapter = command_adapter(tmp_path, answer="too late", sleep=5)
+    with pytest.raises(ModelError) as excinfo:
+        run_model(adapter, prompt="P", system_prompt=SYSTEM, timeout=0.5)
+    assert excinfo.value.category == "timeout"
+
+
+def test_a_missing_executable_is_a_clean_error(tmp_path):
+    adapter = AgentAdapter(["/nonexistent/agent", "{prompt}"])
+    with pytest.raises(ModelError) as excinfo:
+        run_model(adapter, prompt="P", system_prompt=SYSTEM, timeout=10)
+    assert "not found" in str(excinfo.value)
 
 
 @pytest.mark.parametrize(
@@ -120,20 +158,6 @@ def test_parse_stream_collects_answer_session_and_usage():
         ("Model is not available for the current Prime team.", "availability"),
         ("503 service unavailable", "availability"),
         ("invalid JSON in model output", "runtime"),
-        ("error: unknown session id abc", "session"),
-        ("--resume failed", "session"),
-        # exact diagnostics of the installed 0.9.8 release, captured offline
-        (
-            "Error: No session found matching 'definitely-missing-session'.\n"
-            "Open prime-agent and press left-arrow to browse sessions.",
-            "session",
-        ),
-        ("SessionSelectorNotFoundError: No session found matching 'abc'", "session"),
-        (
-            'SessionSelectorError: Ambiguous saved session "abc": matches 1a2b (My CV), 3c4d',
-            "session",
-        ),
-        ("Ambiguous saved session 'x': matches 2 saved sessions", "session"),
         ("something odd happened", "runtime"),
         ("", "runtime"),
     ],
@@ -146,83 +170,11 @@ def test_classify_failure_timeout():
     assert classify_failure("anything", timed_out=True) == "timeout"
 
 
-def run(agent, *, spec=ASTRA, prompt="PROMPT", timeout=10, resume_id=None, no_session=False, tmp_path=None):
-    return run_model(
-        PrimeAgentAdapter(agent.exe),
-        spec=spec,
-        prompt=prompt,
-        system_prompt=SYSTEM,
-        session_dir=tmp_path,
-        resume_id=resume_id,
-        no_session=no_session,
-        timeout=timeout,
-    )
-
-
-def test_run_model_success_and_argv(fake_agent, tmp_path):
-    fake_agent.steps([{"answer": '{"headline": "x", "experience": []}', "session_id": "s1"}])
-    result = run(fake_agent, tmp_path=tmp_path)
-    assert result.text == '{"headline": "x", "experience": []}'
-    assert result.session_id == "s1"
-    assert result.answer_source == "json-events"
-    assert result.usage.total == 126
-    call = fake_agent.calls()[0]
-    assert call["argv"][-1] == "PROMPT"
-    assert "--no-skills" in call["argv"]
-
-
-def test_run_model_raw_stdout_fallback(fake_agent, tmp_path):
-    fake_agent.steps([{"answer": "plain answer", "raw": True}])
-    result = run(fake_agent, tmp_path=tmp_path)
-    assert result.text == "plain answer"
-    assert result.answer_source == "raw-stdout"
-
-
-def test_run_model_quota_failure(fake_agent, tmp_path):
-    fake_agent.steps([{"exit": 1, "stderr": "error: quota exceeded", "answer": "ignored"}])
-    with pytest.raises(ModelError) as excinfo:
-        run(fake_agent, tmp_path=tmp_path)
-    assert excinfo.value.category == "quota"
-
-
-def test_run_model_plain_failure_is_runtime(fake_agent, tmp_path):
-    fake_agent.steps([{"exit": 1, "stderr": "error: invalid JSON in model output"}])
-    with pytest.raises(ModelError) as excinfo:
-        run(fake_agent, tmp_path=tmp_path)
-    assert excinfo.value.category == "runtime"
-
-
-def test_run_model_empty_output_is_invalid_output(fake_agent, tmp_path):
-    fake_agent.steps([{"answer": "", "exit": 0}])
-    with pytest.raises(ModelError) as excinfo:
-        run(fake_agent, tmp_path=tmp_path)
-    assert excinfo.value.category == "invalid_output"
-
-
-def test_run_model_timeout_kills_the_child(fake_agent, tmp_path):
-    fake_agent.steps([{"sleep": 5, "answer": "too late"}])
-    with pytest.raises(ModelError) as excinfo:
-        run(fake_agent, timeout=0.5, tmp_path=tmp_path)
-    assert excinfo.value.category == "timeout"
-
-
-def test_run_model_resume_arguments_are_forwarded(fake_agent, tmp_path):
-    fake_agent.steps([{"answer": '{"experience": []}'}])
-    run(fake_agent, resume_id="sess-9", tmp_path=tmp_path)
-    argv = fake_agent.calls()[0]["argv"]
-    assert argv[argv.index("--resume") + 1] == "sess-9"
-    assert argv[argv.index("--session-dir") + 1] == str(tmp_path)
-
-
-def test_successful_answer_text_is_never_classified_as_a_failure(fake_agent, tmp_path):
-    """F4b/F5: provider keywords inside the answer must not fail a good run."""
-    fake_agent.steps([{"answer": "quota exceeded; 401 Unauthorized; unknown session id"}])
-
-    result = run(fake_agent, tmp_path=tmp_path)
-
-    assert result.text.startswith("quota exceeded")
-    # the shared fake may or may not emit a stopReason; neither is a failure
-    assert result.stop_reason in (None, "stop")
+def test_successful_answer_text_is_never_treated_as_a_failure(tmp_path):
+    """Provider keywords inside the answer must not fail a good run."""
+    adapter = command_adapter(tmp_path, answer="quota exceeded; 401 Unauthorized")
+    run = run_model(adapter, prompt="P", system_prompt=SYSTEM, timeout=10)
+    assert run.text.startswith("quota exceeded")
 
 
 def test_usage_describe_reports_missing_counters():

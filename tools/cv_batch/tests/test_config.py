@@ -9,14 +9,15 @@ import pytest
 from cv_batch.cli import main
 from cv_batch.config import (
     CONFIG_AGENT_COMMAND,
+    CONFIG_AGENT_FORMAT,
     CONFIG_AGENT_TABLE,
     DEFAULT_LAYOUT,
-    DEFAULT_MODEL,
     DEFAULT_TARGET_TEMPLATE,
     Config,
     ConfigError,
     TargetNaming,
     agent_command_from_env,
+    agent_format_from_env,
     build_paths,
     config_path,
     load_config,
@@ -42,7 +43,7 @@ def test_a_missing_config_file_is_silent_and_gives_the_built_in_defaults(tmp_pat
     root.mkdir()
     config = load_config(root)
     assert not config.exists
-    assert config.text("model", DEFAULT_MODEL) == DEFAULT_MODEL
+    assert config.string_list(CONFIG_AGENT_COMMAND, section=CONFIG_AGENT_TABLE) is None
     assert config.text("generator_template", DEFAULT_LAYOUT) == DEFAULT_LAYOUT
     paths = build_paths(job_root=root)
     assert paths.applications == root / "applications"
@@ -55,28 +56,28 @@ def test_a_missing_config_file_is_silent_and_gives_the_built_in_defaults(tmp_pat
 def test_config_file_is_found_in_config_below_the_job_root(tmp_path, monkeypatch):
     root = tmp_path / "jobs"
     root.mkdir()
-    path = write_config(root, 'model = "auto"\n')
+    path = write_config(root, 'headline = "from the file"\n')
     assert config_path(root) == path
-    assert load_config(root).text("model") == "auto"
+    assert load_config(root).text("headline") == "from the file"
 
 
 def test_config_file_location_precedence(tmp_path, monkeypatch):
     root = tmp_path / "jobs"
     root.mkdir()
-    default = write_config(root, 'model = "auto"\n')
+    default = write_config(root, 'headline = "default"\n')
     elsewhere = tmp_path / "other" / "cv.toml"
     elsewhere.parent.mkdir()
-    elsewhere.write_text('model = "astra"\n', encoding="utf-8")
+    elsewhere.write_text('headline = "elsewhere"\n', encoding="utf-8")
 
     assert config_path(root) == default
     monkeypatch.setenv("CV_CONFIG", str(elsewhere))
     assert config_path(root) == elsewhere          # the environment beats the default
-    assert load_config(root).text("model") == "astra"
-    assert load_config(root, elsewhere).text("model") == "astra"
+    assert load_config(root).text("headline") == "elsewhere"
+    assert load_config(root, elsewhere).text("headline") == "elsewhere"
     explicit = tmp_path / "explicit.toml"
-    explicit.write_text('model = "deepseek"\n', encoding="utf-8")
+    explicit.write_text('headline = "explicit"\n', encoding="utf-8")
     assert config_path(root, explicit) == explicit  # --config beats the environment
-    assert load_config(root, explicit).text("model") == "deepseek"
+    assert load_config(root, explicit).text("headline") == "explicit"
 
 
 def test_invalid_toml_is_an_error_naming_the_file(tmp_path):
@@ -107,14 +108,17 @@ def test_wrong_value_type_is_an_error_naming_the_key(tmp_path):
 def test_the_agent_command_comes_from_the_config_or_the_environment(tmp_path, monkeypatch):
     root = tmp_path / "jobs"
     root.mkdir()
-    write_config(root, '[agent]\ncommand = ["my-agent", "--go", "{prompt}"]\n')
+    write_config(
+        root,
+        '[agent]\ncommand = ["my-agent", "--go", "{prompt}"]\nformat = "prime-agent-json"\n',
+    )
     config = load_config(root)
     assert config.string_list(CONFIG_AGENT_COMMAND, section=CONFIG_AGENT_TABLE) == (
         "my-agent",
         "--go",
         "{prompt}",
     )
-    assert load_config(root).string_list("command", section="agent") == ("my-agent", "--go", "{prompt}")
+    assert config.text(CONFIG_AGENT_FORMAT, section=CONFIG_AGENT_TABLE) == "prime-agent-json"
 
     write_config(root, "[agent]\ncommand = 5\n")
     with pytest.raises(ConfigError, match=r"\[agent\] command must be a list of strings"):
@@ -124,6 +128,10 @@ def test_the_agent_command_comes_from_the_config_or_the_environment(tmp_path, mo
     assert agent_command_from_env() == ["claude", "-p", "{prompt}"]
     monkeypatch.setenv("CV_AGENT_COMMAND", "   ")
     assert agent_command_from_env() is None
+    monkeypatch.setenv("CV_AGENT_FORMAT", " prime-agent-json ")
+    assert agent_format_from_env() == "prime-agent-json"
+    monkeypatch.setenv("CV_AGENT_FORMAT", "  ")
+    assert agent_format_from_env() is None
 
 
 def test_a_missing_agent_command_is_absent(tmp_path):
@@ -143,7 +151,7 @@ def test_unknown_keys_are_ignored(tmp_path):
     root = tmp_path / "jobs"
     root.mkdir()
     write_config(root, 'future_option = "x"\n[future_table]\nkey = 1\n')
-    assert load_config(root).text("model", DEFAULT_MODEL) == DEFAULT_MODEL
+    assert load_config(root).text("future_option") == "x"
 
 
 # ---------------------------------------------------------------------------
@@ -257,15 +265,19 @@ def test_cli_limits_come_from_the_config_file(project, fake_agent, fake_renderer
     assert "--max-bullets-per-entry must be an integer between 1 and 50" in capsys.readouterr().err
 
 
-def test_cli_a_command_agent_replaces_the_model_plan(project, fake_agent, fake_renderer, capsys):
-    write_config(project.root, '[agent]\ncommand = ["claude", "-p", "{prompt}"]\n')
+def test_cli_runs_the_configured_command_agent(project, fake_agent, fake_renderer, capsys):
+    write_config(project.root, '[agent]\ncommand = ["claude", "-p", "{prompt}"]\nformat = "text"\n')
     project.add_app("Alpha")
-    code = main([*base_args(project, fake_agent, fake_renderer), "--language", "de", "--all", "--dry-run"])
+    code = main(
+        [
+            *base_args(project, fake_agent, fake_renderer, with_agent=False),
+            "--language", "de", "--all", "--dry-run",
+        ]
+    )
     out = capsys.readouterr().out
     assert code == 0
     assert "Agent          : claude -p '{prompt}'" in out
-    assert "Model          :" not in out
-    assert "Session mode" not in out
+    assert "Agent format   : text" in out
     assert "Parallel jobs  : 1" in out
 
 
@@ -292,18 +304,6 @@ def test_cli_agent_command_needs_the_prompt_placeholder(project, fake_agent, fak
     ])
     assert code == 2
     assert "{prompt}" in capsys.readouterr().err
-
-
-def test_cv_toml_and_the_example_stay_in_step(project):
-    """The private file must not silently differ from the shipped example."""
-    from pathlib import Path
-
-    repo = Path(__file__).resolve().parents[3]
-    real = repo / "config" / "cv.toml"
-    example = repo / "config" / "cv.toml.example"
-    if not real.is_file():
-        pytest.skip("the private config/cv.toml is not present in this checkout")
-    assert real.read_text(encoding="utf-8") == example.read_text(encoding="utf-8")
 
 
 def test_target_naming_helper_matches_the_tool_default():

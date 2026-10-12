@@ -410,7 +410,8 @@ Because `$CVGEN_OUTPUT_DIR` is not set in a normal shell, the same command
 without it writes `exports/generator/current_en.pdf` instead.
 
 Run the whole CV plan against the example, without a model call, using a
-throwaway config file:
+throwaway config file (with no `[agent]` a real run is refused, so the dry run
+is the way to exercise the chain):
 
 ```toml
 # /tmp/cv-example.toml
@@ -431,9 +432,8 @@ Profile        : /path/to/job-hunter/examples/profile
 Generator      : /path/to/job-hunter/tools/cv_generator
 State (private): /tmp/cv-example-state
 Language       : EN
-Agent          : prime-agent
-Model          : deepseek (default) - DeepSeek Flash only (deepseek/deepseek-v4-flash; never Pro), no fallback
-Session mode   : fresh   parallel jobs: 1
+Agent          : (none configured)
+Parallel jobs  : 1
 Layout         : classic (default)   (renderer --layout)
 Posting folders: 1 usable, 1 ignored, 0 unusable
 Missing CVs    : 1

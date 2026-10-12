@@ -15,10 +15,8 @@ import pytest
 
 from cv_batch.model import (
     ABORTED_STOP_REASON,
-    ASTRA,
-    SWITCH_CLASSES,
+    AgentAdapter,
     ModelError,
-    PrimeAgentAdapter,
     parse_events,
     run_model,
 )
@@ -190,9 +188,8 @@ def fake_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **scenario) -> str
 
 
 def run_cli(exe: str, **kwargs):
-    return run_model(
-        PrimeAgentAdapter(exe), spec=ASTRA, prompt="PROMPT", system_prompt=SYSTEM, timeout=10, **kwargs
-    )
+    adapter = AgentAdapter([exe, "{prompt}"], format="prime-agent-json")
+    return run_model(adapter, prompt="PROMPT", system_prompt=SYSTEM, timeout=10, **kwargs)
 
 
 def test_json_error_status_fails_even_with_exit_zero_and_content(tmp_path, monkeypatch):
@@ -237,7 +234,6 @@ def test_json_error_status_with_unknown_text_stays_runtime(tmp_path, monkeypatch
         run_cli(exe)
 
     assert excinfo.value.category == "runtime"
-    assert excinfo.value.category not in SWITCH_CLASSES
 
 
 def test_json_error_status_with_empty_content_still_fails(tmp_path, monkeypatch):
@@ -262,7 +258,6 @@ def test_aborted_status_never_succeeds_and_never_switches(tmp_path, monkeypatch)
         run_cli(exe)
 
     assert excinfo.value.category == "aborted"
-    assert excinfo.value.category not in SWITCH_CLASSES
     assert "aborted" in str(excinfo.value)
 
 
@@ -339,9 +334,3 @@ def test_nonzero_exit_with_json_error_message_classifies_structurally(tmp_path, 
 
     assert excinfo.value.category == "quota"
 
-
-def test_unknown_and_aborted_categories_are_not_switch_classes():
-    assert "aborted" not in SWITCH_CLASSES
-    assert "runtime" not in SWITCH_CLASSES
-    assert "session" not in SWITCH_CLASSES
-    assert "invalid_output" not in SWITCH_CLASSES
