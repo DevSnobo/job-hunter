@@ -333,8 +333,10 @@ def test_prompt_is_bounded_and_excludes_source_url_and_tool_instructions(project
     system = argv[argv.index("--system-prompt") + 1]
     assert "untrusted data" in system
     assert "no markdown fences" in system
-    for flag in ("--no-tools", "--no-builtin-tools", "--no-extensions", "--no-skills"):
+    for flag in ("--no-skills", "--no-prompt-templates", "--no-context-files"):
         assert flag in argv
+    for gone in ("--no-tools", "--no-builtin-tools", "--no-extensions"):
+        assert gone not in argv
 
 
 def test_quota_failure_switches_to_deepseek_flash_for_the_rest_of_the_batch(project, fake_agent, fake_renderer):

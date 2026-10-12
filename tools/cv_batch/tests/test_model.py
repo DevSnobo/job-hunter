@@ -18,7 +18,7 @@ from cv_batch.model import (
 SYSTEM = "You are a selector."
 
 
-def test_build_command_disables_every_context_resource(tmp_path):
+def test_build_command_disables_skills_templates_and_context(tmp_path):
     argv = build_command(
         exe="prime-agent",
         spec=ASTRA,
@@ -33,14 +33,14 @@ def test_build_command_disables_every_context_resource(tmp_path):
     assert argv[argv.index("--provider") + 1] == "openai-codex"
     assert argv[argv.index("--model") + 1] == "gpt-6-astra"
     for flag in (
-        "--no-tools",
-        "--no-builtin-tools",
-        "--no-extensions",
         "--no-skills",
         "--no-prompt-templates",
         "--no-context-files",
     ):
         assert flag in argv
+    # prime-agent 0.10 removed these; passing them fails as unknown options.
+    for gone in ("--no-tools", "--no-builtin-tools", "--no-extensions"):
+        assert gone not in argv
     assert argv[argv.index("--session-dir") + 1] == str(tmp_path)
     assert argv[argv.index("--system-prompt") + 1] == SYSTEM
     assert argv[-2] == "--" and argv[-1] == "PROMPT"
@@ -168,7 +168,7 @@ def test_run_model_success_and_argv(fake_agent, tmp_path):
     assert result.usage.total == 126
     call = fake_agent.calls()[0]
     assert call["argv"][-1] == "PROMPT"
-    assert "--no-tools" in call["argv"]
+    assert "--no-skills" in call["argv"]
 
 
 def test_run_model_raw_stdout_fallback(fake_agent, tmp_path):

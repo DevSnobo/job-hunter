@@ -32,9 +32,14 @@ documentation:
   ``aborted``.  In JSON mode a failed or aborted assistant message still leaves
   the process exit code at 0, so the status must be read from the event, not
   from the exit code or from a keyword scan over unrelated prompt text.
-* Tools, builtin tools, extensions, skills, prompt templates and context files
-  are disabled with explicit flags; ``--system-prompt`` replaces the system
-  prompt.  Sessions are written to a tool-owned ``--session-dir``.
+* Skills, prompt templates and context files are disabled with explicit flags;
+  ``--system-prompt`` replaces the harness system prompt, and the selector
+  prompt states that the model has no tools and must not use them.  prime-agent
+  0.10 removed ``--no-tools``, ``--no-builtin-tools`` and ``--no-extensions``
+  (the first two were silently ignored before, and the TS extension system is
+  gone) and offers no way to detach the built-in ``ipython`` tool, so a run has
+  that tool available; the strict JSON answer keeps the selector on task.
+  Sessions are written to a tool-owned ``--session-dir``.
 * ``--resume <id>`` continues an existing saved session; ``--session-dir`` must
   point at the directory that holds it.  A missing or ambiguous selector is a
   session problem (one fresh retry), never a provider problem.
@@ -229,10 +234,10 @@ def build_command(
     argv += ["--provider", spec.provider, "--model", spec.model]
     if thinking:
         argv += ["--thinking", thinking]
+    # 0.10 removed --no-tools and --no-builtin-tools (they were already silently
+    # ignored) and --no-extensions (the extension system is gone); passing any of
+    # them now fails as an unknown option.
     argv += [
-        "--no-tools",
-        "--no-builtin-tools",
-        "--no-extensions",
         "--no-skills",
         "--no-prompt-templates",
         "--no-context-files",
