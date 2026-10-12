@@ -2,9 +2,9 @@
 
 `./cv` writes one tailored, one-page CV per selected job posting. It reads
 `posting.txt` of an application folder, builds a catalog of approved CV text
-from your own profile, lets the `prime-agent` CLI pick from that catalog,
+from your own profile, lets a CLI agent pick from that catalog,
 validates the answer in Python and renders the PDF with
-[`./cvgen`](cvgen-cli.md). The model only selects candidate IDs; the Python
+[`./cvgen`](cvgen-cli.md). The agent only selects candidate IDs; the Python
 pipeline owns every file written.
 
 ## Prerequisites
@@ -13,7 +13,7 @@ pipeline owns every file written.
 |---|---|
 | `uv` | The launcher `bin/cv` runs `uv run --quiet --project <root> --package cv-batch cv ...`. Without `uv` on `PATH` it prints an error and exits 127. |
 | workspace dependencies | Run `uv sync` once at the repository root. |
-| `prime-agent` | The model CLI. The supported executable is `prime-agent`, never `prime`. Override it with `--model-command EXE` or `$CV_PRIME_AGENT`. Only a real run needs it: `--dry-run` never calls the model. |
+| a CLI agent | Only a real run needs one: it reads the candidate catalog and returns the selected IDs (`--dry-run` never calls it). The shipped default adapter drives `prime-agent` (executable `prime-agent`, never `prime`; override the executable with `--model-command EXE` or `$CV_PRIME_AGENT`). Any other CLI agent can be used instead - see [Custom CLI agent](#custom-cli-agent). |
 | a profile | `profile/inputs/current_de.json` and `current_en.json` (the reviewed baseline) plus the backlogs `profile/backlogs/career-knowledge-backlog-DE.md` and `-EN.md`. The baseline supplies `first_name`, `last_name` and `headline`; the first two build the CV file name. Copy the synthetic example: `cp -r examples/profile profile`. |
 | `applications/` | One folder per posting. A folder is usable when it is a real directory with a non-empty regular `posting.txt`. |
 | config (optional) | `config/cv.toml`, found through `--config`, then `$CV_CONFIG`, then `<job root>/config/cv.toml`. |
@@ -26,7 +26,7 @@ else the current directory. Every relative default follows it: `applications/`,
 
 One run does this, in order: scan `applications/` and classify the expected CV
 file of every folder, build the candidate catalog from the profile baseline and
-the backlogs, write one prompt per job, run `prime-agent` in headless JSON mode,
+the backlogs, write one prompt per job, run the CLI agent in headless mode,
 extract and validate the selection, rebuild the CV JSON from the baseline plus
 the selection, render it with `cvgen render` on a private staging path, and
 finally place the accepted PDF next to the posting under the target name. Every
@@ -37,15 +37,16 @@ job fails on its own: one bad posting never stops the rest of the batch. See
 |---|---|---|
 | scan and classify | `cv_batch` | the numbered candidate list and the plan |
 | catalog | `cv_batch` from `profile/` | candidate IDs the model may select |
-| generate | `prime-agent -p --mode json` | one JSON answer per job |
+| generate | the CLI agent (default adapter: `prime-agent -p --mode json`) | one JSON answer per job |
 | validate | `cv_batch` | a selection with known IDs, or a bounded retry |
 | render | `cvgen render` in the generator's uv project | a one-page A4 PDF on a staging path |
 | publish | `cv_batch` | the PDF in the application folder and the run evidence under `state/` |
 
 ## Model policy
 
-`--model` chooses the policy. The default comes from `cv.toml` `model`, else
-`deepseek`.
+`--model` chooses the policy for the built-in `prime-agent` adapter. The default
+comes from `cv.toml` `model`, else `deepseek`. For another CLI agent, see
+[Custom CLI agent](#custom-cli-agent).
 
 | value | behaviour |
 |---|---|
@@ -78,6 +79,38 @@ Model policy:
 
 Related flags: `--thinking LEVEL` (prime-agent reasoning level) and
 `--timeout SECONDS` (model timeout, default `[limits] model_timeout`, else 240).
+
+## Custom CLI agent
+
+`prime-agent` is the default, not a requirement. `./cv` needs only a CLI agent
+that reads a system prompt plus the user message and prints its answer - the
+selection JSON - on stdout. Point the tool at another agent with any of:
+
+| source | value |
+|---|---|
+| `cv.toml` | `[agent]` table, key `command` = a list of strings, e.g. `["your-agent", "--print", "{prompt}"]` |
+| environment | `$CV_AGENT_COMMAND`, the same command as one shell-style string |
+| flag | `--agent-command 'your-agent --print {prompt}'` |
+
+A flag beats the environment, which beats the configuration file; without any of
+them the built-in `prime-agent` adapter runs.
+
+The command is a template. `{prompt}` is replaced with the user message and is
+required. `{system_prompt}` is replaced with the system prompt when the template
+names it; otherwise the system prompt is prepended to the user message, so an
+agent without a system-prompt option still receives the instructions. Both
+replacements are literal and per argument: no shell runs and the prompt is never
+split. Use your agent's headless/print mode and disable its tools the way that
+agent documents it.
+
+The command must print the answer JSON on stdout. A non-zero exit fails the job,
+and the same recognised `quota`/rate-limit, `availability` and `authentication`
+failures are read from its stderr as for `prime-agent`.
+
+The model policy and the session modes above belong to the built-in `prime-agent`
+adapter. A custom command runs without them: no `--model`/`--thinking` selection,
+no `state/sessions/`, and no token accounting. `--jobs N` still runs N command
+processes in parallel.
 
 ## Selection
 
@@ -174,7 +207,7 @@ Details:
 | `state/inputs/<folder>-<hash>-<lang>.json` | the canonical run record for that folder and language |
 | `state/runs/<timestamp>-<folder>-<hash>-<lang>-<suffix>.json` | the same record, one file per run |
 | `state/replaced/*.bak` | copies of replaced files |
-| `state/sessions/` | prime-agent sessions (mode `fresh` or `reuse` only) |
+| `state/sessions/` | agent sessions (built-in `prime-agent` adapter only, mode `fresh` or `reuse`) |
 | `state/staging/` | scratch directory, removed with the job |
 
 The record holds `generator_input` (the exact JSON that produced the accepted
@@ -229,10 +262,11 @@ Execution:
 | option | meaning |
 |---|---|
 | `--jobs N` | parallel fresh sessions (1..`[limits] max_jobs`) |
-| `--session-mode {fresh,reuse,none}` | session policy (default `fresh`) |
+| `--session-mode {fresh,reuse,none}` | session policy (default `fresh`; built-in `prime-agent` adapter) |
 | `--model {auto,astra,deepseek}` | model policy (default from `cv.toml` `model`, else `deepseek`) |
-| `--thinking LEVEL` | prime-agent reasoning level |
-| `--model-command EXE` | prime-agent executable (default `prime-agent`, or `$CV_PRIME_AGENT`) |
+| `--thinking LEVEL` | prime-agent reasoning level (built-in adapter) |
+| `--model-command EXE` | prime-agent executable (default `prime-agent`, or `$CV_PRIME_AGENT`; built-in adapter) |
+| `--agent-command CMD` | drive another CLI agent instead of prime-agent (default: `$CV_AGENT_COMMAND`, else `cv.toml [agent] command`) |
 | `--timeout SECONDS` | model timeout (default `[limits] model_timeout`, else 240) |
 | `--content-retries N` | paid model retries after a rejected answer, 0..3 (default `[limits] content_retries`, else 1) |
 | `--no-trim` | never drop bullets to fit one page; an overflow then fails |
@@ -304,7 +338,7 @@ $ echo $?
 
 | symptom | cause and fix |
 |---|---|
-| `fail: <folder> [de] model call failed: model executable not found: /nonexistent/prime-agent` (also printed as `error: <folder>: model call failed: ...`), exit 1 | The model CLI is not on `PATH`. Install `prime-agent`, or pass `--model-command` / set `$CV_PRIME_AGENT`. Nothing was written to the application folder. |
+| `fail: <folder> [de] model call failed: agent executable not found: /nonexistent/prime-agent` (also printed as `error: <folder>: model call failed: ...`), exit 1 | The agent executable is not on `PATH`. Install `prime-agent`, or pass `--model-command` / set `$CV_PRIME_AGENT` (or point `--agent-command` at your own agent). Nothing was written to the application folder. |
 | `error: baseline input not found: <profile>/inputs/current_de.json`, exit 2 | The profile is incomplete. Copy `examples/profile` to `profile` or fix `[paths] profile_dir` in `cv.toml`. |
 | `error: --folder NAME: no such folder under <applications>`, exit 2 | The name is not the basename of a usable folder. Unusable folders report their own reason (`--folder NAME: no posting.txt`). |
 | `nothing to do: every usable posting folder already has a valid DE CV.`, exit 0 | Nothing is missing. Use `--overwrite` to replace a CV deliberately. |

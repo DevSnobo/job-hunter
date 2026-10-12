@@ -11,6 +11,7 @@ import pytest
 from cv_batch.apps import classify_target
 from cv_batch.config import build_paths
 from cv_batch.prompt import Limits
+from cv_batch.model import PrimeAgentAdapter
 from cv_batch.runner import FAILED, OK, SKIPPED, JobSpec, Runner, run_batch
 from cv_batch.sessions import ModelPolicy, SessionPolicy
 
@@ -47,7 +48,7 @@ def make_runner(
         language=language,
         model_policy=ModelPolicy(model),
         session_policy=SessionPolicy(session_mode, paths.sessions),
-        exe=fake_agent.exe,
+        agent=PrimeAgentAdapter(fake_agent.exe),
         generator_exe=fake_renderer.exe if fake_renderer else None,
         layout=layout,
         limits=Limits(max_bullets_per_entry=5, max_bullets_total=13, max_headline=60),

@@ -7,7 +7,7 @@ Layout:
 * :mod:`cv_batch.selection` - parse the ``1,3-5,12`` selection syntax
 * :mod:`cv_batch.catalog`   - candidate catalog from the reviewed baseline + backlogs
 * :mod:`cv_batch.prompt`    - bounded prompt construction
-* :mod:`cv_batch.model`     - prime-agent invocation, output parsing, failure classes
+* :mod:`cv_batch.model`     - CLI-agent adapters, output parsing, failure classes
 * :mod:`cv_batch.build`     - validate the model selection, build the cvgen JSON
 * :mod:`cv_batch.render`    - invoke the existing CV generator, place the PDF safely
 * :mod:`cv_batch.runner`    - the per-job pipeline and batch execution

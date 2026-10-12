@@ -7,6 +7,7 @@ from cv_batch.model import (
     ASTRA,
     DEEPSEEK,
     ModelError,
+    PrimeAgentAdapter,
     Usage,
     build_command,
     classify_failure,
@@ -147,7 +148,7 @@ def test_classify_failure_timeout():
 
 def run(agent, *, spec=ASTRA, prompt="PROMPT", timeout=10, resume_id=None, no_session=False, tmp_path=None):
     return run_model(
-        exe=agent.exe,
+        PrimeAgentAdapter(agent.exe),
         spec=spec,
         prompt=prompt,
         system_prompt=SYSTEM,

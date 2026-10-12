@@ -18,6 +18,7 @@ from cv_batch.model import (
     ASTRA,
     SWITCH_CLASSES,
     ModelError,
+    PrimeAgentAdapter,
     parse_events,
     run_model,
 )
@@ -189,7 +190,9 @@ def fake_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **scenario) -> str
 
 
 def run_cli(exe: str, **kwargs):
-    return run_model(exe=exe, spec=ASTRA, prompt="PROMPT", system_prompt=SYSTEM, timeout=10, **kwargs)
+    return run_model(
+        PrimeAgentAdapter(exe), spec=ASTRA, prompt="PROMPT", system_prompt=SYSTEM, timeout=10, **kwargs
+    )
 
 
 def test_json_error_status_fails_even_with_exit_zero_and_content(tmp_path, monkeypatch):

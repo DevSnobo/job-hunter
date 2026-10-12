@@ -159,7 +159,7 @@ catalog.py      build the catalog from profile/inputs/current_<lang>.json + prof
 prompt.py       one system prompt + one user message with the candidate ids and the posting
         |
         v
-model.py        prime-agent CLI, headless JSON mode, one call per job
+model.py        the CLI agent (default: prime-agent in headless JSON mode), one call per job
         |
         v
 build.py        validate the selected ids, rebuild the CV JSON from the fixed baseline
@@ -178,14 +178,14 @@ publish         place the PDF next to posting.txt; write the evidence into state
 |---|---|---|
 | `cv_batch/catalog.py` | Build the catalog and the identity. Read-only. | nothing |
 | `cv_batch/prompt.py` | Build the system prompt and the user message. The posting is data, and the system prompt says so. | nothing |
-| `cv_batch/model.py` | Run `prime-agent -p --mode json` with tools, skills and context files disabled, `--system-prompt`, and `--session-dir state/sessions`. Parse the event stream. | session files, through the agent |
+| `cv_batch/model.py` | Build the agent command, run one headless call and read the answer. The shipped adapters: `prime-agent` (`-p --mode json`, tools/skills/context disabled, `--system-prompt`, `--session-dir state/sessions`, JSON event stream) and a generic command template for any other CLI agent. | session files, through the agent (`prime-agent` adapter only) |
 | `cv_batch/build.py` | Validate the answer, then build the generator JSON from the input file. | nothing |
 | `cv_batch/render.py` | Run the renderer on a staging path and place the result without clobbering. | `state/staging/<job>/input.json` and the staged PDF |
 | `cv_batch/runner.py` | Own one job end to end and write the evidence. | `state/inputs/<slug>.json`, `state/runs/<stamp>-<slug>.json` |
 | `cv_batch/apps.py` | Scan `applications/` and classify the existing CV file: missing, valid, or invalid. | nothing |
 | `cvgen` | Render the JSON to one A4 page. | the PDF |
 
-The model call is one bounded message. The tool sends the candidate ids, the
+The agent call is one bounded message. The tool sends the candidate ids, the
 fixed headline, the immutable sidebar content and the posting text. It requires
 strict JSON back:
 
@@ -376,8 +376,9 @@ pass `--overwrite`, and the old bytes are kept as
 
 ## Where state lives
 
-`state/` belongs to `./cv` (plus the two session directories of the prime-agent
-runtime). [layout](layout.md) lists every file and what is safe to delete.
+`state/` belongs to `./cv`, plus the two session directories that the built-in
+`prime-agent` adapter has the agent write. [layout](layout.md) lists every file
+and what is safe to delete.
 In short:
 
 * Safe to delete (history and scratch space): `state/runs/`,

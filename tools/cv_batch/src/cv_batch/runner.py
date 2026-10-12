@@ -50,7 +50,7 @@ from .build import (
 )
 from .catalog import Catalog, CatalogError, backlog_for, baseline_for, build_catalog
 from .config import DEFAULT_LAYOUT, Paths, TargetNaming
-from .model import ModelError, ModelRun, Usage, run_model
+from .model import AgentAdapter, ModelError, ModelRun, Usage, run_model
 from .prompt import SYSTEM_PROMPT, Limits, build_user_prompt
 from .render import (
     PlaceError,
@@ -203,7 +203,7 @@ class Runner:
         language: str,
         model_policy: ModelPolicy,
         session_policy: SessionPolicy,
-        exe: str,
+        agent: AgentAdapter,
         generator_exe: str | None,
         layout: str = DEFAULT_LAYOUT,
         limits: Limits,
@@ -222,7 +222,7 @@ class Runner:
         self.language = language
         self.models = model_policy
         self.sessions = session_policy
-        self.exe = exe
+        self.agent = agent
         self.generator_exe = generator_exe
         #: renderer layout name, forwarded verbatim to ``cvgen render --layout``
         self.layout = layout
@@ -347,7 +347,8 @@ class Runner:
         finally:
             os.close(dir_fd)
         selection, run = self._select(catalog, posting)
-        self.sessions.record(run.session_id)
+        if self.agent.uses_sessions:
+            self.sessions.record(run.session_id)
 
         cv = build_cv_dict(self._baseline(job.language), catalog, selection)
         stage = (
@@ -419,7 +420,7 @@ class Runner:
             job,
             OK,
             message,
-            model=run.spec.selector,
+            model=run.label,
             resumed=run.resumed,
             session_id=run.session_id,
             usage=run.usage,
@@ -491,18 +492,19 @@ class Runner:
             language=catalog.language, catalog=catalog, posting=posting, limits=self.limits
         )
         while True:
-            spec = self.models.current()
-            plan = self.sessions.plan()
+            uses_model = self.agent.uses_model_policy
+            spec = self.models.current() if uses_model else None
+            plan = self.sessions.plan() if self.agent.uses_sessions else None
             try:
                 run = run_model(
-                    exe=self.exe,
+                    self.agent,
                     spec=spec,
                     prompt=prompt,
                     system_prompt=SYSTEM_PROMPT,
-                    session_dir=plan.session_dir,
-                    resume_id=plan.resume_id,
-                    no_session=plan.no_session,
-                    thinking=self.thinking,
+                    session_dir=plan.session_dir if plan else None,
+                    resume_id=plan.resume_id if plan else None,
+                    no_session=plan.no_session if plan else False,
+                    thinking=self.thinking if uses_model else None,
                     timeout=self.model_timeout,
                     on_start=self.track,
                     on_end=self.untrack,
@@ -510,7 +512,13 @@ class Runner:
             except ModelError as exc:
                 if self.cancel.is_set():
                     raise JobFailure("cancelled") from exc
-                if exc.category == "session" and plan.resume_id and not session_fallback:
+                if (
+                    self.agent.uses_sessions
+                    and exc.category == "session"
+                    and plan is not None
+                    and plan.resume_id
+                    and not session_fallback
+                ):
                     session_fallback = True
                     self.sessions.reset()
                     self.log(
@@ -521,7 +529,7 @@ class Runner:
                 # whose failed spec is the (now exhausted) primary model, also
                 # when another worker performed the switch (F3).  The local
                 # ``switched`` flag keeps the retry at one per job.
-                if not switched and self.models.note_failure(exc.category, failed_spec=spec):
+                if not switched and uses_model and self.models.note_failure(exc.category, failed_spec=spec):
                     switched = True
                     self.sessions.reset()
                     self.log(
@@ -587,7 +595,8 @@ class Runner:
                 "backup": None,
             },
             "model": {
-                "selector": run.spec.selector,
+                "agent": run.agent,
+                "selector": run.label,
                 "session_id": run.session_id,
                 "resumed": run.resumed,
                 "answer_source": run.answer_source,

@@ -20,6 +20,7 @@ import pytest
 
 from cv_batch.config import build_paths
 from cv_batch.prompt import Limits
+from cv_batch.model import PrimeAgentAdapter
 from cv_batch.runner import FAILED, OK, JobSpec, Runner, run_batch
 from cv_batch.sessions import ModelPolicy, SessionPolicy
 
@@ -61,7 +62,7 @@ def make_runner(project, agent: ProviderAgent, renderer, log=None):
         language="de",
         model_policy=ModelPolicy("auto"),
         session_policy=SessionPolicy("fresh", paths.sessions),
-        exe=agent.exe,
+        agent=PrimeAgentAdapter(agent.exe),
         generator_exe=renderer.exe,
         limits=Limits(max_bullets_per_entry=5, max_bullets_total=13, max_headline=60),
         posting_chars=6000,

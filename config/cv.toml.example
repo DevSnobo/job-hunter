@@ -33,8 +33,9 @@ target_template = "CV_{name}_{language}_{folder}.pdf"
 # not change it.  A value here overrides the profile for every CV.
 headline = ""
 
-# The model policy for `--model`.  Allowed: auto | astra | deepseek.
-# Default: "deepseek" = DeepSeek Flash only, never Pro.
+# The model policy for `--model` of the built-in prime-agent adapter.  Allowed:
+# auto | astra | deepseek.  Default: "deepseek" = DeepSeek Flash only, never Pro.
+# A custom `[agent] command` (below) has no model policy and ignores this key.
 model = "deepseek"
 
 # The languages `--language` accepts, in prompt order.  Default: ["de", "en"].
@@ -58,6 +59,16 @@ state_dir = "state"
 # Defaults: <profile_dir>/backlogs/career-knowledge-backlog-DE.md (and -EN.md)
 backlog_de = "profile/backlogs/career-knowledge-backlog-DE.md"
 backlog_en = "profile/backlogs/career-knowledge-backlog-EN.md"
+
+# How the tool invokes the CLI agent.  Omit this table to use the built-in
+# prime-agent adapter.  Set `command` to drive any other CLI agent instead: the
+# command receives {prompt}, and {system_prompt} when the template names it
+# (otherwise the instructions are prepended to the prompt), and must print the
+# answer JSON on stdout.  A custom command has no model policy and no sessions.
+# The environment `$CV_AGENT_COMMAND` and the flag `--agent-command` override it.
+# Example:
+#     [agent]
+#     command = ["claude", "-p", "{prompt}"]
 
 [limits]
 # Upper bounds; the matching CLI flags override them and are validated against

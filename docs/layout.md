@@ -40,7 +40,7 @@ the tools find their root, how a value is resolved, and how to move data.
 | `sql/queries/` | tracked | you | The seven read-only queries that reporting and exports run. |
 | `sql/tests/` | tracked | you | `schema_smoke.sql`, a schema and view smoke test. |
 | `sql/migration-template.sql.example` | tracked | you | The copy source for a new migration. |
-| `state/` | private | `./cv` and the prime-agent runtime | Tool state. See the table below. |
+| `state/` | private | `./cv` and the CLI agent it drives | Tool state. See the table below. |
 | `tools/` | tracked | you | The four uv workspace projects. See the table below. |
 | `pyproject.toml` | tracked | you | The uv workspace (`name = "job-hunter"`, `members = ["tools/*"]`). |
 | `uv.lock` | tracked | `uv sync` | The locked dependency set of the whole workspace. |
@@ -66,7 +66,7 @@ as intake folders:
 |---|---|---|
 | `tools/job_cli` | `./job` | Registers applications, logs events and rounds, reports, exports, migrates the schema. |
 | `tools/posting_entry` | `./posting` | Captures a job posting into `applications/<company>[_<posting-id>]/`. |
-| `tools/cv_batch` | `./cv` | Tailors one CV per posting with `prime-agent` and renders it. |
+| `tools/cv_batch` | `./cv` | Tailors one CV per posting with a CLI agent (default `prime-agent`) and renders it. |
 | `tools/cv_generator` | `./cvgen` | Renders a structured CV JSON to a one-page A4 PDF. |
 
 ## What lands in `state/`
@@ -81,12 +81,14 @@ subdirectories it owns on the first run.
 | `state/runs/` | `./cv` | `<stamp>-<folder-slug>-<hash10>-<language>-<hex6>.json`, one file per job run. Runs never overwrite each other. |
 | `state/replaced/` | `./cv` | `<CV name>.<hex8>.bak`: the old bytes of a CV that `--regenerate-invalid` or `--overwrite` replaced. |
 | `state/staging/` | `./cv` | The render area of one job: `<slug>-<hash6>-<language>-<hex8>/input.json` plus the PDF that `cvgen` wrote. The tool deletes the folder when the job ends. |
-| `state/sessions/` | the prime-agent runtime | `<session-id>.jsonl` transcripts. `./cv` passes `--session-dir state/sessions`. |
-| `state/session-artifacts/` | the prime-agent runtime | `<session-id>/semantic-edges.jsonl`, one directory per session id. |
+| `state/sessions/` | the CLI agent (built-in `prime-agent` adapter) | `<session-id>.jsonl` transcripts. `./cv` passes `--session-dir state/sessions`. |
+| `state/session-artifacts/` | the CLI agent (built-in `prime-agent` adapter) | `<session-id>/semantic-edges.jsonl`, one directory per session id. |
 
-The last two rows are written by the `prime-agent` process, not by Python code
-in this repository. `state/sessions/` and `state/session-artifacts/` use the
-same session ids, so one directory matches one transcript.
+The last two rows are written by the agent process, not by Python code in this
+repository, and only when the built-in `prime-agent` adapter runs (a custom
+`--agent-command` writes none). `state/sessions/` and
+`state/session-artifacts/` use the same session ids, so one directory matches one
+transcript.
 
 Safe to delete: `state/runs/`, `state/replaced/`, `state/staging/` and
 `state/session-artifacts/`. They are history and scratch space.

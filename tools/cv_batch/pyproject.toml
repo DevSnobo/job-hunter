@@ -1,7 +1,7 @@
 [project]
 name = "cv-batch"
 version = "0.1.0"
-description = "Interactive batch tailoring of one-page CVs per job posting (local generator + prime-agent)"
+description = "Interactive batch tailoring of one-page CVs per job posting (local generator + a CLI agent)"
 requires-python = ">=3.12"
 dependencies = [
     "prompt-toolkit>=3.0.53",

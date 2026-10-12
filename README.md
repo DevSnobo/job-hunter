@@ -4,8 +4,10 @@ A private job-application toolchain that runs entirely on this machine. It does
 four things: a SQLite tracker for what you sent and what came back, a guided
 capture tool for job postings, a tailoring tool that writes one one-page CV per
 posting, and a local CV renderer. No job board, no hosted service and no AI API
-is contacted by the tools themselves; only the optional CV tailoring step calls
-the `prime-agent` CLI on your machine.
+is contacted by the tools themselves. The optional CV tailoring step is the only
+part that calls a model: it drives a CLI agent on your machine, and that agent
+has one narrow job - read your experience backlog and pick the points for the
+CV. `prime-agent` is the shipped default; any other CLI agent can be plugged in.
 
 This repository is **public** and contains **no personal data**. All personal
 material lives in private, gitignored directories (`applications/`, `profile/`,
@@ -17,7 +19,7 @@ material lives in private, gitignored directories (`applications/`, `profile/`,
 |---|---|---|
 | `./job` | Tracks applications: register a submission, log events and rounds, browse, report, export, and keep the SQLite schema migrated. | [docs/job-cli.md](docs/job-cli.md) |
 | `./posting` | Captures a pasted job posting into `applications/<company>[_<posting-id>]/` as `posting.txt` plus `source.txt`. | [docs/posting-cli.md](docs/posting-cli.md) |
-| `./cv` | Tailors one one-page CV per posting with the `prime-agent` CLI, validates the answer, and renders it with `./cvgen`. | [docs/cv-cli.md](docs/cv-cli.md) |
+| `./cv` | Tailors one one-page CV per posting: a CLI agent picks the points from your experience backlog, the answer is validated, and the CV is rendered with `./cvgen`. | [docs/cv-cli.md](docs/cv-cli.md) |
 | `./cvgen` | Renders a structured CV JSON file to a one-page A4 PDF. No network, no AI. | [docs/cvgen-cli.md](docs/cvgen-cli.md) |
 
 Each launcher is a small shell script in `bin/` that finds the repository root,
@@ -31,7 +33,7 @@ only convenience: the tools work from any working directory.
 |---|---|
 | [uv](https://docs.astral.sh/uv/) | Runs every tool and manages the single `.venv` of the workspace. |
 | Python 3.12 or newer | The workspace requires `>=3.12` and pins 3.14 in `.python-version`; uv installs it when needed. |
-| `prime-agent` (optional) | Only `./cv` needs it: it is the model CLI that picks the CV content. `./cv --dry-run` works without it. |
+| a CLI agent (optional) | Only `./cv` needs one: it reads your experience backlog and selects the points for the CV. The shipped default adapter drives `prime-agent`; any other CLI agent can be used instead (`./cv --explain-modes`). `./cv --dry-run` works without any. |
 | poppler-utils (optional) | Only `./cvgen render --png` needs `pdftoppm`. The PDF is always written. |
 | an SVG rasterizer (optional) | `rsvg-convert` (librsvg), `inkscape` or ImageMagick: `./job export sankey` always writes the SVG, and a PNG only when one of them is installed. |
 

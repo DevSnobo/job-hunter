@@ -13,10 +13,11 @@ every value:
 
     CLI flag  ->  environment variable  ->  cv.toml  ->  built-in default
 
-Environment variables exist for the job root (``CV_JOB_ROOT``), the provider CLI
-(``CV_PRIME_AGENT``) and the configuration file itself (``CV_CONFIG``); the
-other values have no environment variable and fall straight from the CLI flag to
-``cv.toml`` and then to the built-in default.
+Environment variables exist for the job root (``CV_JOB_ROOT``), the prime-agent
+executable (``CV_PRIME_AGENT``), a custom agent command (``CV_AGENT_COMMAND``)
+and the configuration file itself (``CV_CONFIG``); the other values have no
+environment variable and fall straight from the CLI flag to ``cv.toml`` and then
+to the built-in default.
 
 A missing config file is normal and silent: every run works without one.  A file
 that exists but cannot be used (invalid TOML, a value of the wrong type) is a
@@ -26,6 +27,7 @@ usage error naming the file and the problem - never a silent fallback.
 from __future__ import annotations
 
 import os
+import shlex
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,10 +35,17 @@ from typing import Any
 
 ENV_JOB_ROOT = "CV_JOB_ROOT"
 ENV_PRIME_AGENT = "CV_PRIME_AGENT"
+ENV_AGENT_COMMAND = "CV_AGENT_COMMAND"
 ENV_CONFIG = "CV_CONFIG"
 
 #: File name of this tool's configuration file (below ``<root>/config``).
 CONFIG_FILENAME = "cv.toml"
+
+#: The ``[agent]`` table: how the CLI agent is invoked.  ``command`` selects a
+#: custom agent command (any CLI agent); without it the built-in prime-agent
+#: adapter runs.
+CONFIG_AGENT_TABLE = "agent"
+CONFIG_AGENT_COMMAND = "command"
 
 #: Model policy: DeepSeek *Flash* is the default (``--model deepseek``); ``auto``
 #: starts on Astra and falls back to DeepSeek Flash.  Never DeepSeek Pro.
@@ -133,6 +142,17 @@ class Config:
             return default
         if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
             self._fail(f"{key} must be a list of strings, not {value!r}")
+        return tuple(value)
+
+    def string_list(self, key: str, *, section: str | None = None) -> tuple[str, ...] | None:
+        """A list of strings (top level or ``[section]``); ``None`` when absent."""
+        table = self.data if section is None else self.table(section)
+        label = key if section is None else f"[{section}] {key}"
+        value = table.get(key)
+        if value is None:
+            return None
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            self._fail(f"{label} must be a list of strings, not {value!r}")
         return tuple(value)
 
     def path_value(self, key: str, *, section: str | None = None) -> Path | None:
@@ -342,8 +362,23 @@ def build_paths(
 
 
 def default_prime_agent() -> str:
-    """The supported CLI on this machine is ``prime-agent`` (never ``prime``)."""
+    """The prime-agent executable: ``$CV_PRIME_AGENT``, else ``prime-agent``."""
     return os.environ.get(ENV_PRIME_AGENT) or "prime-agent"
+
+
+def agent_command_from_env() -> list[str] | None:
+    """``$CV_AGENT_COMMAND`` split like a shell command; ``None`` when unset.
+
+    The value is the command template of a custom CLI agent (the
+    ``[agent] command`` key as one string).  A malformed value is a usage error.
+    """
+    raw = os.environ.get(ENV_AGENT_COMMAND)
+    if raw is None or not raw.strip():
+        return None
+    try:
+        return shlex.split(raw)
+    except ValueError as exc:
+        raise ConfigError(f"${ENV_AGENT_COMMAND} is not a valid command: {exc}") from exc
 
 
 LANGUAGES = ("de", "en")

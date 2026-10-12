@@ -8,12 +8,15 @@ import pytest
 
 from cv_batch.cli import main
 from cv_batch.config import (
+    CONFIG_AGENT_COMMAND,
+    CONFIG_AGENT_TABLE,
     DEFAULT_LAYOUT,
     DEFAULT_MODEL,
     DEFAULT_TARGET_TEMPLATE,
     Config,
     ConfigError,
     TargetNaming,
+    agent_command_from_env,
     build_paths,
     config_path,
     load_config,
@@ -99,6 +102,41 @@ def test_wrong_value_type_is_an_error_naming_the_key(tmp_path):
     write_config(root, "[limits]\nmodel_timeout = \"soon\"\n")
     with pytest.raises(ConfigError, match=r"\[limits\] model_timeout must be an integer"):
         load_config(root).integer("model_timeout", 240, section="limits")
+
+
+def test_the_agent_command_comes_from_the_config_or_the_environment(tmp_path, monkeypatch):
+    root = tmp_path / "jobs"
+    root.mkdir()
+    write_config(root, '[agent]\ncommand = ["my-agent", "--go", "{prompt}"]\n')
+    config = load_config(root)
+    assert config.string_list(CONFIG_AGENT_COMMAND, section=CONFIG_AGENT_TABLE) == (
+        "my-agent",
+        "--go",
+        "{prompt}",
+    )
+    assert load_config(root).string_list("command", section="agent") == ("my-agent", "--go", "{prompt}")
+
+    write_config(root, "[agent]\ncommand = 5\n")
+    with pytest.raises(ConfigError, match=r"\[agent\] command must be a list of strings"):
+        load_config(root).string_list("command", section="agent")
+
+    monkeypatch.setenv("CV_AGENT_COMMAND", 'claude -p "{prompt}"')
+    assert agent_command_from_env() == ["claude", "-p", "{prompt}"]
+    monkeypatch.setenv("CV_AGENT_COMMAND", "   ")
+    assert agent_command_from_env() is None
+
+
+def test_a_missing_agent_command_is_absent(tmp_path):
+    root = tmp_path / "jobs"
+    root.mkdir()
+    assert load_config(root).string_list("command", section="agent") is None
+    assert agent_command_from_env() is None
+
+
+def test_a_malformed_agent_command_env_value_is_a_usage_error(monkeypatch):
+    monkeypatch.setenv("CV_AGENT_COMMAND", "unbalanced 'quote")
+    with pytest.raises(ConfigError, match="CV_AGENT_COMMAND"):
+        agent_command_from_env()
 
 
 def test_unknown_keys_are_ignored(tmp_path):
@@ -217,6 +255,43 @@ def test_cli_limits_come_from_the_config_file(project, fake_agent, fake_renderer
     code = main([*base_args(project, fake_agent, fake_renderer), "--language", "de", "--all", "--dry-run"])
     assert code == 2
     assert "--max-bullets-per-entry must be an integer between 1 and 50" in capsys.readouterr().err
+
+
+def test_cli_a_command_agent_replaces_the_model_plan(project, fake_agent, fake_renderer, capsys):
+    write_config(project.root, '[agent]\ncommand = ["claude", "-p", "{prompt}"]\n')
+    project.add_app("Alpha")
+    code = main([*base_args(project, fake_agent, fake_renderer), "--language", "de", "--all", "--dry-run"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Agent          : claude -p '{prompt}'" in out
+    assert "Model          :" not in out
+    assert "Session mode" not in out
+    assert "Parallel jobs  : 1" in out
+
+
+def test_cli_agent_command_flag_beats_the_config_file(project, fake_agent, fake_renderer, capsys):
+    write_config(project.root, '[agent]\ncommand = ["ignored", "{prompt}"]\n')
+    project.add_app("Alpha")
+    code = main([
+        *base_args(project, fake_agent, fake_renderer),
+        "--agent-command", "chosen {prompt}",
+        "--language", "de", "--all", "--dry-run",
+    ])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Agent          : chosen '{prompt}'" in out
+    assert "Agent          : ignored" not in out
+
+
+def test_cli_agent_command_needs_the_prompt_placeholder(project, fake_agent, fake_renderer, capsys):
+    project.add_app("Alpha")
+    code = main([
+        *base_args(project, fake_agent, fake_renderer),
+        "--agent-command", "claude -p",
+        "--language", "de", "--all", "--dry-run",
+    ])
+    assert code == 2
+    assert "{prompt}" in capsys.readouterr().err
 
 
 def test_cv_toml_and_the_example_stay_in_step(project):

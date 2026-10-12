@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import shlex
 import sys
 from dataclasses import dataclass
 
@@ -17,6 +18,8 @@ from . import __version__
 from . import apps as apps_mod
 from . import tty_input
 from .config import (
+    CONFIG_AGENT_COMMAND,
+    CONFIG_AGENT_TABLE,
     CONFIG_GENERATOR_TEMPLATE,
     DEFAULT_CONTENT_RETRIES,
     DEFAULT_HEADLINE,
@@ -35,6 +38,7 @@ from .config import (
     Config,
     ConfigError,
     TargetNaming,
+    agent_command_from_env,
     build_paths,
     default_prime_agent,
     find_job_root,
@@ -43,6 +47,7 @@ from .config import (
     normalize_language,
 )
 from .catalog import CatalogError, backlog_for, baseline_for, build_catalog, load_identity
+from .model import AgentAdapter, CommandAgentAdapter, PrimeAgentAdapter
 from .prompt import Limits
 from .runner import BatchInterrupted, Runner, run_batch
 from .selection import SelectionError, parse_selection
@@ -112,6 +117,16 @@ Model policy:
 
   There is no separate quota probe and no paid retry loop.  Token counters are
   reported only when the CLI exposes them in its JSON event stream.
+
+Custom agent:
+
+  The tool drives a headless CLI agent to pick the CV content, and prime-agent
+  is only the default choice.  Set cv.toml [agent] command = ["your-agent",
+  "{prompt}"], or $CV_AGENT_COMMAND, or --agent-command, to use any other CLI
+  agent.  The command receives {prompt}, and {system_prompt} when the template
+  carries it (otherwise the instructions are prepended to the prompt), and must
+  print the answer JSON on stdout.  The model policy and the session modes above
+  belong to the built-in prime-agent agent; a custom command runs without them.
 
 Existing CV files:
 
@@ -244,6 +259,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--thinking", metavar="LEVEL", default=None, help="prime-agent reasoning level")
     run.add_argument("--model-command", metavar="EXE", default=None, help="prime-agent executable (default: prime-agent)")
+    run.add_argument(
+        "--agent-command",
+        metavar="CMD",
+        default=None,
+        help=(
+            "custom CLI agent command, e.g. 'claude -p {prompt}' (default: the built-in "
+            "prime-agent adapter; overrides $CV_AGENT_COMMAND and cv.toml [agent] command)"
+        ),
+    )
     run.add_argument(
         "--timeout",
         type=float,
@@ -394,6 +418,27 @@ def _headline_override(config: Config) -> str | None:
     """``cv.toml`` ``headline``; empty means "take it from the profile"."""
     value = config.text("headline", DEFAULT_HEADLINE) or DEFAULT_HEADLINE
     return value.strip() or None
+
+
+def _select_agent(args, config: Config) -> AgentAdapter:
+    """Pick the agent adapter: a custom command, else the prime-agent default.
+
+    Precedence for the custom command: ``--agent-command`` ->
+    ``$CV_AGENT_COMMAND`` -> ``cv.toml [agent] command``.  Without one, the
+    built-in prime-agent adapter runs, with its executable from
+    ``--model-command`` or ``$CV_PRIME_AGENT``.
+    """
+    command: list[str] | None
+    if args.agent_command is not None:
+        command = shlex.split(args.agent_command)
+    else:
+        command = agent_command_from_env()
+        if command is None:
+            configured = config.string_list(CONFIG_AGENT_COMMAND, section=CONFIG_AGENT_TABLE)
+            command = list(configured) if configured is not None else None
+    if command is not None:
+        return CommandAgentAdapter(command)
+    return PrimeAgentAdapter(args.model_command or default_prime_agent())
 
 
 def _validate_limits(args) -> list[str]:
@@ -566,6 +611,7 @@ def _print_plan(
     missing,
     invalid,
     valid,
+    agent: AgentAdapter,
     *,
     allow_replace: bool,
     allow_overwrite: bool,
@@ -577,9 +623,14 @@ def _print_plan(
     console.info(f"Generator      : {paths.generator_project}")
     console.info(f"State (private): {paths.state_dir}")
     console.info(f"Language       : {language.upper()}")
-    suffix = " (default)" if args.model == DEFAULT_MODEL else ""
-    console.info(f"Model          : {args.model}{suffix} - {_model_description(args.model)}")
-    console.info(f"Session mode   : {args.session_mode}   parallel jobs: {args.jobs}")
+    console.info(f"Agent          : {agent.describe()}")
+    if agent.uses_model_policy:
+        suffix = " (default)" if args.model == DEFAULT_MODEL else ""
+        console.info(f"Model          : {args.model}{suffix} - {_model_description(args.model)}")
+    if agent.uses_sessions:
+        console.info(f"Session mode   : {args.session_mode}   parallel jobs: {args.jobs}")
+    else:
+        console.info(f"Parallel jobs  : {args.jobs}")
     layout_suffix = " (default)" if args.layout == DEFAULT_LAYOUT else ""
     console.info(f"Layout         : {args.layout}{layout_suffix}   (renderer --layout)")
     console.info(
@@ -690,7 +741,14 @@ def _select_interactive(console: Console, candidates) -> list[int] | None:
 
 
 def _confirm(
-    console: Console, count: int, language: str, args, *, replacing: int = 0, overwriting: int = 0
+    console: Console,
+    count: int,
+    language: str,
+    args,
+    agent: AgentAdapter,
+    *,
+    replacing: int = 0,
+    overwriting: int = 0,
 ) -> bool | None:
     console.info("")
     console.info(f"Ready to tailor {count} CV(s) in {language.upper()}.")
@@ -704,11 +762,12 @@ def _confirm(
             f"This overwrites {overwriting} existing CV file(s); "
             f"each old file is backed up under the tool state directory first."
         )
-    console.info(
-        f"Model: {args.model} - {_model_description(args.model)}   "
-        f"Session mode: {args.session_mode}   Parallel jobs: {args.jobs}   "
-        f"Layout: {args.layout}"
-    )
+    if agent.uses_model_policy:
+        agent_line = f"Model: {args.model} - {_model_description(args.model)}   "
+    else:
+        agent_line = f"Agent: {agent.describe()}   "
+    session_line = f"Session mode: {args.session_mode}   " if agent.uses_sessions else ""
+    console.info(f"{agent_line}{session_line}Parallel jobs: {args.jobs}   Layout: {args.layout}")
     answer = _ask("Proceed? [y/N]: ", console)
     if answer is None:
         return None
@@ -738,10 +797,20 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_USAGE
     languages = _config_languages(config)
 
+    try:
+        agent = _select_agent(args, config)
+    except (ConfigError, ValueError) as exc:
+        console.error(str(exc))
+        return EXIT_USAGE
+    if not agent.uses_sessions and (args.thinking is not None or args.session_mode != "fresh"):
+        console.warn(
+            "--thinking and --session-mode apply to the built-in prime-agent agent only; ignoring them"
+        )
+
     if args.jobs < 1 or args.jobs > args.max_jobs:
         console.error(f"--jobs must be between 1 and {args.max_jobs}")
         return EXIT_USAGE
-    if args.jobs > 1 and args.session_mode == "reuse":
+    if args.jobs > 1 and args.session_mode == "reuse" and agent.uses_sessions:
         console.error("--session-mode reuse cannot be combined with --jobs > 1 (a live session is never shared)")
         return EXIT_USAGE
     limit_errors = _validate_limits(args)
@@ -852,7 +921,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.quiet:
         _print_plan(
-            console, args, paths, language, scan, missing, invalid, valid,
+            console, args, paths, language, scan, missing, invalid, valid, agent,
             allow_replace=args.regenerate_invalid,
             allow_overwrite=args.overwrite,
             scope=scope,
@@ -955,7 +1024,7 @@ def main(argv: list[str] | None = None) -> int:
             console.error("refusing to start without --yes on a non-interactive stdin")
             return EXIT_USAGE
         confirmed = _confirm(
-            console, len(jobs), language, args, replacing=replacing, overwriting=overwriting
+            console, len(jobs), language, args, agent, replacing=replacing, overwriting=overwriting
         )
         if not confirmed:
             console.info("cancelled")
@@ -969,7 +1038,7 @@ def main(argv: list[str] | None = None) -> int:
         language=language,
         model_policy=model_policy,
         session_policy=session_policy,
-        exe=args.model_command or default_prime_agent(),
+        agent=agent,
         generator_exe=args.generator_exe,
         layout=args.layout,
         limits=Limits(
