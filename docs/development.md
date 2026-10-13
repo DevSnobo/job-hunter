@@ -86,7 +86,7 @@ timeout 500 ./.venv/bin/python -m pytest tools/cv_generator/tests  -o faulthandl
 
 | suite | tests | time |
 |---|---|---|
-| `tools/job_cli/tests` | 323 passed | 1 min 51 s |
+| `tools/job_cli/tests` | 328 passed | 1 min 55 s |
 | `tools/posting_entry/tests` | 90 passed | 1 min 3 s |
 | `tools/cv_batch/tests` | 311 passed | 33 s |
 | `tools/cv_generator/tests` | 101 passed, 2 warnings | 10 s |
@@ -271,13 +271,19 @@ default, so a questionary change cannot make the tools diverge.
 The `prompt` class is set to an empty rule in the two prompt_toolkit tools, so
 only the input line is coloured and the question text keeps the terminal font.
 
+One extra shortcut is specific to `./job`: a number key confirms the matching
+entry of a list at once (`1`..`9`, then `0` for the tenth). `./posting` and
+`./cv` do not have it. See [job-cli](job-cli.md).
+
 The tests that pin the contract:
 
 ```bash
 ./.venv/bin/python -m pytest tools/job_cli/tests/test_prompt_cursor.py
 # 5 passed
+./.venv/bin/python -m pytest tools/job_cli/tests/test_number_keys.py
+# 4 passed
 ./.venv/bin/python -m pytest tools/job_cli/tests/test_interactive.py
-# part of 27 passed when run together with test_prompt_cursor.py
+# 25 passed
 ```
 
 `test_prompt_cursor.py` drives every prompt site with a recording stand-in for

@@ -788,6 +788,12 @@ The list is an arrow-key list, and the questions inside each flow are typed
 answers (dates, text, lookups, yes/no). Ctrl-C or Ctrl-D leaves the current
 entry.
 
+Pressing a number confirms that entry at once: `3` picks `3. Log an update`
+without the arrow keys or Enter. The number keys cover the first ten entries
+(`1`..`9`, then `0` for the tenth); a longer list keeps its remaining entries on
+the arrow keys. The same shortcut works in every other list the tool shows
+(applications, events, rounds, lookups).
+
 `1. Prepare application` runs the repository's own `./posting` launcher
 (`<job root>/bin/posting`) with the inherited terminal, so the capture, the
 optional CVs and their questions stay exactly as they are outside the menu.

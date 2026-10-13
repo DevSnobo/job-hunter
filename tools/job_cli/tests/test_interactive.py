@@ -162,6 +162,20 @@ def test_menu_exits_cleanly(project_root, tmp_path):
     assert code == 0
 
 
+def test_a_number_key_confirms_the_matching_entry(project_root, tmp_path):
+    """A menu number picks that entry, at the top level and in a sub-menu."""
+    db = tmp_path / "numbers.sqlite3"
+    output, code = _run_menu(project_root, db, [
+        ("Job tracker", b"7"),              # "7. Statistics and export"
+        ("Statistics and export", b"5"),    # "Back"
+        ("Job tracker", b"9"),              # "9. Exit"
+    ])
+    assert "Statistics and export" in output
+    assert "9. Exit" in output
+    assert "Traceback" not in output
+    assert code == 0
+
+
 def test_ctrl_c_at_the_menu_leaves_no_traceback_and_no_data(project_root, tmp_path):
     db = tmp_path / "menu2.sqlite3"
     output, code = _run_menu(project_root, db, [("Job tracker", b"\x03")])

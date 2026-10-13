@@ -164,6 +164,41 @@ def first_default(options: Sequence[tuple[str, str]],
     return recommended + [option for option in options if option[0] != value]
 
 
+#: The keys that confirm the first entries of a list directly, in order: the
+#: digits 1..9 and then 0 for the tenth entry.
+NUMBER_KEYS = ("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
+
+
+def _bind_number_keys(question, values: Sequence[str]) -> None:
+    """Let the number keys confirm an entry of ``question`` in one keypress.
+
+    questionary builds the prompt first, so the binding is added afterwards and
+    made eager to win over the prompt's catch-all key handler. Only the first
+    ten entries are numbered; a longer list keeps its remaining entries on the
+    arrow keys. A prompt object without an ``application`` (a test stand-in for
+    questionary) is left alone.
+    """
+    application = getattr(question, "application", None)
+    if application is None:  # pragma: no cover - only a fake prompt replaces select
+        return
+    for key, value in zip(NUMBER_KEYS, values):
+        def confirm(event, value=value):
+            event.app.exit(result=value)
+
+        application.key_bindings.add(key, eager=True)(confirm)
+
+
+def _select_question(message: str, options: Sequence[tuple[str, str]], *,
+                     default: str | None = None):
+    """The questionary select behind :func:`choice`, with the number keys bound."""
+    choices = [questionary.Choice(title=label, value=value) for value, label in options]
+    question = questionary.select(message, choices=choices, default=default,
+                                  style=PROMPT_STYLE,
+                                  instruction="(Use arrow keys or a number)")
+    _bind_number_keys(question, [value for value, _ in options])
+    return question
+
+
 def choice(message: str, options: Sequence[tuple[str, str]], *,
            default: str | None = None) -> str:
     """Ask for one entry of ``options``.
@@ -172,11 +207,12 @@ def choice(message: str, options: Sequence[tuple[str, str]], *,
     pointer somewhere else. Pass a recommendation through :func:`first_default`
     instead of letting ``default`` point at a later entry. ``default`` stays
     supported for entries that are already first.
+
+    Pressing a number confirms that entry at once (1..9, then 0 for the tenth),
+    so a short list needs neither the arrow keys nor Enter; a longer list keeps
+    its remaining entries on the arrow keys.
     """
-    choices = [questionary.Choice(title=label, value=value) for value, label in options]
-    answer = questionary.select(message, choices=choices, default=default,
-                                style=PROMPT_STYLE).ask()
-    return str(_answer(answer))
+    return str(_answer(_select_question(message, options, default=default).ask()))
 
 
 def checkbox(message: str, options: Sequence[tuple[str, str]],
