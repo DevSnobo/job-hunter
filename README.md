@@ -22,6 +22,11 @@ material lives in private, gitignored directories (`applications/`, `profile/`,
 | `./cv` | Tailors one one-page CV per posting: a CLI agent picks the points from your experience backlog, the answer is validated, and the CV is rendered with `./cvgen`. | [docs/cv-cli.md](docs/cv-cli.md) |
 | `./cvgen` | Renders a structured CV JSON file to a one-page A4 PDF. No network, no AI. | [docs/cvgen-cli.md](docs/cvgen-cli.md) |
 
+The tools also call each other: `./posting` offers the tailored CVs after a saved
+posting, and `Prepare application` in the `./job` menu runs `./posting` and then
+offers the new folder to the tracker, so one flow goes from capturing a posting
+to tracking the application ([docs/architecture.md](docs/architecture.md)).
+
 Each launcher is a small shell script in `bin/` that finds the repository root,
 exports it (`JOB_ROOT`, `CV_JOB_ROOT`) and runs the matching uv workspace member
 from `tools/`. The root symlinks (`./job`, `./posting`, `./cv`, `./cvgen`) are
@@ -72,10 +77,12 @@ Create the database and the schema, then use the tools:
 
 ```bash
 ./job db migrate     # creates data/job.sqlite3 and applies sql/migrations/
-./posting            # paste a job posting, save it into applications/
+./job                # menu -> "1. Prepare application": capture a posting, take the offered CVs, register it
 ./job list           # browse what you registered
-./cv                 # tailor and render a CV per selected posting
 ```
+
+Prefer one tool per step? `./posting` captures a posting, `./cv` tailors the
+CVs, and `./job add` registers the application by hand.
 
 `config/*.toml` and `profile/` are optional in the sense that every tool has
 built-in defaults, but they are where your own values belong. `examples/` shows

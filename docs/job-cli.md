@@ -773,19 +773,30 @@ under `applications/` is always kept. In a non-interactive run, a missing
 
 | Entry | What it runs |
 |---|---|
-| `1. Add submitted application` | the `add` flow, then the "Next step" sub-menu |
-| `2. Log an update` | pick an application, then the `log` flow |
-| `3. Browse/search applications` | search box, the applications table, optional open |
-| `4. Read a job posting` | pick an application, then print its stored posting |
-| `5. Upcoming interviews / waiting applications` | reference date, then `upcoming`, then `waiting` with a stale threshold |
-| `6. Statistics and export` | `stats`, Sankey export, private snapshot, or replay |
-| `7. Database maintenance` | status, backup, doctor, or migrate |
-| `8. Exit` | leave the menu |
+| `1. Prepare application` | run the sibling `./posting` capture, then offer each new folder the `add` flow |
+| `2. Add submitted application` | the `add` flow, then the "Next step" sub-menu |
+| `3. Log an update` | pick an application, then the `log` flow |
+| `4. Browse/search applications` | search box, the applications table, optional open |
+| `5. Read a job posting` | pick an application, then print its stored posting |
+| `6. Upcoming interviews / waiting applications` | reference date, then `upcoming`, then `waiting` with a stale threshold |
+| `7. Statistics and export` | `stats`, Sankey export, private snapshot, or replay |
+| `8. Database maintenance` | status, backup, doctor, or migrate |
+| `9. Exit` | leave the menu |
 
 The entries carry their own numbers; the cursor starts on the first entry.
 The list is an arrow-key list, and the questions inside each flow are typed
 answers (dates, text, lookups, yes/no). Ctrl-C or Ctrl-D leaves the current
 entry.
+
+`1. Prepare application` runs the repository's own `./posting` launcher
+(`<job root>/bin/posting`) with the inherited terminal, so the capture, the
+optional CVs and their questions stay exactly as they are outside the menu.
+When it returns, `./job` lists the folders this step created that have no
+application yet (newest first) and offers each one through the same add flow as
+`job add --from-folder`: the company comes from the folder identifier and the
+job URL from its `source.txt`, so preparing a posting and starting to track it
+stay in one entry. A missing or unstartable launcher is only a warning. The
+posting capture is separate tooling; see [posting capture](posting-cli.md).
 
 The menu is for a person at the keyboard. `--json` and the flags exist so a
 script can do the same work without a menu, and a run without a terminal prints

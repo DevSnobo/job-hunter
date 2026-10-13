@@ -152,12 +152,12 @@ def _run_menu(project_root: Path, db: Path, steps, timeout: float = 40.0):
 # --------------------------------------------------------------------------
 def test_menu_exits_cleanly(project_root, tmp_path):
     db = tmp_path / "menu.sqlite3"
-    # seven "down" keys from the first entry ("1. Add submitted application", where every
-    # fresh option list starts) to "8. Exit"
-    output, code = _run_menu(project_root, db, [("Job tracker", b"\x1b[B" * 7 + b"\r")])
+    # eight "down" keys from the first entry ("1. Prepare application", where every
+    # fresh option list starts) to "9. Exit"
+    output, code = _run_menu(project_root, db, [("Job tracker", b"\x1b[B" * 8 + b"\r")])
     assert "Job tracker" in output
     assert "Add submitted application" in output
-    assert "8. Exit" in output
+    assert "9. Exit" in output
     assert "Traceback" not in output
     assert code == 0
 
@@ -404,7 +404,7 @@ def test_interactive_statistics_rejects_a_bad_date(run, project_root):
     session = _PtySession(project_root, run.db, [])
     try:
         session.settle()
-        session._send(b"\x1b[B" * 5 + b"\r")   # "6. Statistics and export" (from entry 1)
+        session._send(b"\x1b[B" * 6 + b"\r")   # "7. Statistics and export" (from entry 1)
         session.settle()
         session._send(b"\x1b[B\r")             # "Export aggregate Sankey CSV"
         session.settle()
@@ -412,7 +412,7 @@ def test_interactive_statistics_rejects_a_bad_date(run, project_root):
         session.settle()
         session._send(b"\x03")                  # leave the prompt, back to the menu
         session.settle()
-        session._send(b"\x1b[B" * 7 + b"\r")   # "8. Exit" (from entry 1)
+        session._send(b"\x1b[B" * 8 + b"\r")   # "9. Exit" (from entry 1)
         output, code = session.finish()
     finally:
         session.close()
@@ -442,7 +442,7 @@ def test_the_menu_reads_a_stored_posting_again(run, project_root):
     session = _PtySession(project_root, run.db, [])
     try:
         session.settle()
-        session._send(b"\x1b[B" * 3 + b"\r")   # "4. Read a job posting" (from entry 1)
+        session._send(b"\x1b[B" * 4 + b"\r")   # "5. Read a job posting" (from entry 1)
         session.settle()
         session._send(b"Globex\r")               # search the application
         session.settle()
@@ -450,7 +450,7 @@ def test_the_menu_reads_a_stored_posting_again(run, project_root):
         session.settle()
         session._send(b"\x03")
         session.settle()
-        session._send(b"\x1b[B" * 7 + b"\r")      # "8. Exit" (from entry 1)
+        session._send(b"\x1b[B" * 8 + b"\r")      # "9. Exit" (from entry 1)
         output, code = session.finish()
     finally:
         session.close()
@@ -470,11 +470,11 @@ def test_the_menu_cursor_starts_on_the_first_entry(run, project_root):
     session = _PtySession(project_root, run.db, [])
     try:
         session.settle()
-        assert "\u00bb 1. Add submitted application" in session.buffer
-        assert "\u00bb 2. Log an update" not in session.buffer
+        assert "\u00bb 1. Prepare application" in session.buffer
+        assert "\u00bb 2. Add submitted application" not in session.buffer
         session._send(b"\x1b[B")   # the arrow keys still move the pointer
         session.settle()
-        assert "\u00bb 2. Log an update" in session.buffer
+        assert "\u00bb 2. Add submitted application" in session.buffer
         session._send(b"\x03")
         output, code = session.finish()
     finally:
@@ -498,12 +498,12 @@ def test_the_menu_shows_the_cursor_without_a_text_highlight(run, project_root):
         session.settle()
         session._send(b"\x03")
         session.settle()
-        session._send(b"\x1b[B" * 7 + b"\r")   # "8. Exit" (from entry 1)
+        session._send(b"\x1b[B" * 8 + b"\r")   # "9. Exit" (from entry 1)
         output, code = session.finish()
     finally:
         session.close()
-    assert "1. Add submitted application" in output
-    assert "2. Log an update" in output
+    assert "1. Prepare application" in output
+    assert "2. Add submitted application" in output
     assert not re.search(r"\x1b\[[0-9;]*7m", output), "a menu entry was drawn in reverse video"
     assert code == 0
 
@@ -598,3 +598,65 @@ def test_the_add_flow_can_read_the_posting_immediately(run, project_root):
     )
     assert code == 0, output
     assert "no stored posting text" in output
+
+
+# --------------------------------------------------------------------------
+# the "Prepare application" entry runs the sibling ./posting and offers the add
+# --------------------------------------------------------------------------
+def _fake_posting(project_root: Path, folder: str = "Globex_155461") -> Path:
+    """A stand-in for the sibling ./posting launcher: it writes one intake folder."""
+    bindir = project_root / "bin"
+    bindir.mkdir(exist_ok=True)
+    script = bindir / "posting"
+    script.write_text(
+        "#!/bin/sh\n"
+        f'dir="$JOB_ROOT/applications/{folder}"\n'
+        'mkdir -p "$dir"\n'
+        'printf "Stellen-ID: 155461\\nBackend mit Java und Go.\\n" > "$dir/posting.txt"\n'
+        'printf "https://example.com/jobs/155461\\n" > "$dir/source.txt"\n'
+        "exit 0\n"
+    )
+    script.chmod(0o755)
+    return script
+
+
+def test_the_menu_prepare_reports_a_missing_posting_tool(run, project_root):
+    """Entry 1 hands over to ./posting; a missing launcher is only a warning."""
+    output, code = _run_menu(
+        project_root, run.db,
+        [
+            ("Job tracker", b"\r"),                          # 1. Prepare application
+            ("the posting capture tool", b""),                # the warning it prints
+            ("Job tracker", b"\x1b[B" * 8 + b"\r"),           # 9. Exit (from entry 1)
+        ],
+    )
+    # the message wraps at the terminal width, so assert on the parts that stay whole
+    assert "the posting capture tool" in output
+    assert "not executable" in output
+    assert "Traceback" not in output
+    assert code == 0
+
+
+def test_the_menu_prepare_captures_a_posting_and_offers_to_register_it(run, project_root):
+    """Entry 1 runs ./posting, then hands the new folder to the add-from-folder flow."""
+    _fake_posting(project_root)
+    output, code = _run_menu(
+        project_root, run.db,
+        [
+            ("Job tracker", b"\r"),                             # 1. Prepare application
+            ("Register applications/Globex_155461", b"\r"),     # accept the offer
+            ("Company (from the folder identifier)", b"\r"),    # keep Globex
+            ("Role", b"Backend Entwickler\r"),
+            ("Submission date", b"\r"),
+            ("Add details now", b"n"),
+            ("Save this application?", b"y"),
+            ("Next step", b"\x1b[B" * 4 + b"\r"),               # Back to the menu
+            ("Job tracker", b"\x1b[B" * 8 + b"\r"),             # 9. Exit
+        ],
+    )
+    assert code == 0, output
+    listed = payload(run, "list", "--json")
+    assert [row["company"] for row in listed] == ["Globex"]
+    detail = payload(run, "show", listed[0]["id"], "--json")["application"]
+    assert detail["intake_folder"] == "Globex_155461"
+    assert detail["role"] == "Backend Entwickler"

@@ -20,6 +20,7 @@ from rich.panel import Panel
 from . import (
     __version__,
     artifacts,
+    capture,
     db as dbmod,
     intake,
     migrations,
@@ -2117,6 +2118,46 @@ def _post_add(c: Ctx, app_id: str) -> None:
         _show_application(c, app_id)
 
 
+def _intake_folder_names(c: Ctx) -> set[str]:
+    """The name of every intake folder under applications/ right now."""
+    found = intake.scan(c.layout.applications_dir, exclude=repo.application_ids(c.conn))
+    return {folder.name for folder in found.folders}
+
+
+def _prepared_folders(c: Ctx, before: set[str]) -> list[intake.IntakeFolder]:
+    """Intake folders that appeared since ``before`` and have no application yet.
+
+    Only the folders this step created are offered, newest first, so the posting
+    that was just captured is the first one to register. A folder that already
+    has an application is never offered again.
+    """
+    found = intake.scan(c.layout.applications_dir, exclude=repo.application_ids(c.conn))
+    linked = repo.linked_intake_folders(c.conn)
+    fresh = [folder for folder in intake.pending(found.folders, linked)
+             if folder.name not in before]
+    return sorted(fresh, key=lambda folder: (folder.mtime, folder.name), reverse=True)
+
+
+def _menu_prepare(c: Ctx) -> None:
+    """Capture a posting with the sibling ./posting tool, then offer to register it.
+
+    The tracker never writes an intake folder - the capture tool does (see
+    docs/architecture.md). This entry runs that tool and hands every folder it
+    just created to the normal add-from-folder flow, so preparing a posting and
+    starting to track the application stay in one menu entry.
+    """
+    before = _intake_folder_names(c)
+    if not capture.run(ui, c.layout.root):
+        return
+    for folder in _prepared_folders(c, before):
+        if not ui.confirm(f"Register applications/{folder.name} as a submitted"
+                          " application now?", default=True):
+            continue
+        app_id = _add_application(c, company=None, role=None, submitted_on=None,
+                                  from_folder=folder.name)
+        _post_add(c, app_id)
+
+
 def _menu_add(c: Ctx) -> None:
     app_id = _add_application(c, company=None, role=None, submitted_on=None, force=False)
     _post_add(c, app_id)
@@ -2289,19 +2330,20 @@ def _menu(c: Ctx) -> None:
     while True:
         try:
             # No default: the menu is a fresh list and its cursor belongs on the
-            # first entry, "1. Add submitted application" (the entries carry their
-            # own numbers, so moving one to the front is not an option).
+            # first entry, "1. Prepare application" (the entries carry their own
+            # numbers, so moving one to the front is not an option).
             action = ui.choice(
                 "Job tracker",
                 [
-                    ("add", "1. Add submitted application"),
-                    ("log", "2. Log an update"),
-                    ("browse", "3. Browse/search applications"),
-                    ("posting", "4. Read a job posting"),
-                    ("waiting", "5. Upcoming interviews / waiting applications"),
-                    ("stats", "6. Statistics and export"),
-                    ("db", "7. Database maintenance"),
-                    ("exit", "8. Exit"),
+                    ("prepare", "1. Prepare application"),
+                    ("add", "2. Add submitted application"),
+                    ("log", "3. Log an update"),
+                    ("browse", "4. Browse/search applications"),
+                    ("posting", "5. Read a job posting"),
+                    ("waiting", "6. Upcoming interviews / waiting applications"),
+                    ("stats", "7. Statistics and export"),
+                    ("db", "8. Database maintenance"),
+                    ("exit", "9. Exit"),
                 ],
             )
         except (Cancelled, KeyboardInterrupt):
@@ -2310,6 +2352,7 @@ def _menu(c: Ctx) -> None:
             return
         try:
             {
+                "prepare": _menu_prepare,
                 "add": _menu_add,
                 "log": _menu_log,
                 "browse": _menu_browse,

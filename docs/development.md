@@ -86,7 +86,7 @@ timeout 500 ./.venv/bin/python -m pytest tools/cv_generator/tests  -o faulthandl
 
 | suite | tests | time |
 |---|---|---|
-| `tools/job_cli/tests` | 315 passed | 1 min 56 s |
+| `tools/job_cli/tests` | 323 passed | 1 min 51 s |
 | `tools/posting_entry/tests` | 90 passed | 1 min 3 s |
 | `tools/cv_batch/tests` | 311 passed | 33 s |
 | `tools/cv_generator/tests` | 101 passed, 2 warnings | 10 s |

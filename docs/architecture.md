@@ -19,6 +19,22 @@ The application **folder** is the join key between the two halves.
 Each launcher resolves the repository root and runs its workspace member. See
 [layout](layout.md) for the launcher contents and the root rules.
 
+### How the tools call each other
+
+Two hand-offs cross the tool boundary instead of importing the sibling. Each
+call goes through the repository launcher below `<job root>/bin`, with the
+inherited terminal, `JOB_ROOT` set to this job root, and this job root as the
+working directory:
+
+- `./posting` offers `./cv` for the folder it just saved, so one capture also
+  writes the tailored CVs.
+- `./job` runs `./posting` from its `1. Prepare application` menu entry, then
+  offers each folder that step created to the add-from-folder flow.
+
+The hand-offs are one-way, and a problem in the called tool is only a warning:
+the folder (or the saved posting) is already on disk, so the outer tool does not
+turn it into its own error.
+
 ## The application folder is the join key
 
 `./posting` owns the folder name: `<company>` or `<company>_<posting-id>`, built
