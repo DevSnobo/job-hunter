@@ -63,7 +63,9 @@ Save this posting? [Y/n]
 
 Answer `n` (or Ctrl-C) and nothing is written. Without `--once` the tool then
 asks `Another posting? [Y/n]`; "no" or the end of input stops the session, and
-entries saved earlier are kept.
+entries saved earlier are kept. `./job`'s `Prepare application` entry runs this
+tool with `--once` (see [job CLI](job-cli.md)), so one prepared application
+never turns into a batch.
 
 ## Folder name rules
 

@@ -624,6 +624,7 @@ def _fake_posting(project_root: Path, folder: str = "Globex_155461") -> Path:
     script = bindir / "posting"
     script.write_text(
         "#!/bin/sh\n"
+        'printf "%s\\n" "$@" > "$JOB_ROOT/posting-args.txt"\n'
         f'dir="$JOB_ROOT/applications/{folder}"\n'
         'mkdir -p "$dir"\n'
         'printf "Stellen-ID: 155461\\nBackend mit Java und Go.\\n" > "$dir/posting.txt"\n'
@@ -674,3 +675,5 @@ def test_the_menu_prepare_captures_a_posting_and_offers_to_register_it(run, proj
     detail = payload(run, "show", listed[0]["id"], "--json")["application"]
     assert detail["intake_folder"] == "Globex_155461"
     assert detail["role"] == "Backend Entwickler"
+    # the menu asks ./posting for one posting, so it never offers "Another posting?"
+    assert (project_root / "posting-args.txt").read_text().split() == ["--once"]

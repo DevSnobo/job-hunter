@@ -2,10 +2,11 @@
 
 The "Prepare application" menu entry hands over to the sibling
 ``tools/posting_entry`` project through the repository launcher
-``<job root>/bin/posting``.  This module only discovers that launcher, builds
-its command line and reports whether the capture ran; creating the folder, the
-``posting.txt``/``source.txt`` pair and the optional CVs stays entirely with the
-posting tool.
+``<job root>/bin/posting``.  It asks for one posting (``--once``) so the menu
+runs one application from the posting through its CV offer to the registration.
+This module only discovers that launcher, builds its command line and reports
+whether the capture ran; creating the folder, the ``posting.txt``/``source.txt``
+pair and the optional CVs stays entirely with the posting tool.
 
 The launcher is looked up below the job root instead of on ``PATH`` on purpose:
 only that script knows which project and which job root it must run.  The same
@@ -37,8 +38,14 @@ def launcher_for(root: Path) -> Path | None:
 
 
 def argv(launcher: Path) -> list[str]:
-    """The command line that starts the guided capture (no flags)."""
-    return [os.fspath(launcher)]
+    """The command line that starts the guided capture for exactly one posting.
+
+    ``--once`` makes the capture stop after the first posting, so the menu entry
+    runs the posting, its CV offer and the registration as one application, top
+    to bottom, without the "Another posting?" question in between. That question
+    belongs to a standalone ``./posting`` run, which captures a batch.
+    """
+    return [os.fspath(launcher), "--once"]
 
 
 def retry_command(launcher: Path) -> str:

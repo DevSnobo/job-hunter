@@ -796,7 +796,10 @@ the arrow keys. The same shortcut works in every other list the tool shows
 
 `1. Prepare application` runs the repository's own `./posting` launcher
 (`<job root>/bin/posting`) with the inherited terminal, so the capture, the
-optional CVs and their questions stay exactly as they are outside the menu.
+optional CVs and their questions stay exactly as they are outside the menu. It
+asks the capture for one posting (`--once`), so a single application runs from
+the posting through its CV offer to the registration - the `Another posting?`
+question that a standalone `./posting` session asks is skipped.
 When it returns, `./job` lists the folders this step created that have no
 application yet (newest first) and offers each one through the same add flow as
 `job add --from-folder`: the company comes from the folder identifier and the

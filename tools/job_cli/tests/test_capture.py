@@ -57,9 +57,16 @@ def test_run_starts_the_launcher_from_the_job_root_with_job_root_set(tmp_path):
         return Completed()
 
     assert capture.run(ui, tmp_path, runner=runner) is True
-    assert calls[0]["argv"] == [str(launcher)]
+    assert calls[0]["argv"] == [str(launcher), "--once"]
     assert calls[0]["cwd"] == str(tmp_path)
     assert calls[0]["env"]["JOB_ROOT"] == str(tmp_path)
+
+
+def test_the_capture_is_asked_for_exactly_one_posting(tmp_path):
+    """--once is what keeps one prepared application from turning into a batch."""
+    launcher = _make_launcher(tmp_path)
+    assert capture.argv(launcher) == [str(launcher), "--once"]
+    assert capture.retry_command(launcher).endswith("--once")
 
 
 def test_run_warns_on_a_nonzero_exit_but_still_says_it_ran(tmp_path):

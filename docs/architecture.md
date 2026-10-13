@@ -28,8 +28,9 @@ working directory:
 
 - `./posting` offers `./cv` for the folder it just saved, so one capture also
   writes the tailored CVs.
-- `./job` runs `./posting` from its `1. Prepare application` menu entry, then
-  offers each folder that step created to the add-from-folder flow.
+- `./job` runs `./posting` from its `1. Prepare application` menu entry (with
+  `--once`, for one posting), then offers each folder that step created to the
+  add-from-folder flow.
 
 The hand-offs are one-way, and a problem in the called tool is only a warning:
 the folder (or the saved posting) is already on disk, so the outer tool does not
