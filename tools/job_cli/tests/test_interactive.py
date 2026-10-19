@@ -383,6 +383,58 @@ def test_interactive_add_review_can_be_declined(run, project_root):
     assert payload(run, "list", "--json") == []
 
 
+def test_interactive_add_escape_steps_back_and_keeps_the_earlier_answer(run, project_root):
+    """Escape at a question re-asks the one before it, with the answer prefilled."""
+    session = _PtySession(project_root, run.db, ["add"])
+    try:
+        assert session.expect("Company", b"Typo GmbH\r")
+        assert session.expect("Role", b"\x1b")
+        session.settle()
+        session._send(b"\x15Fixed GmbH\r")   # Ctrl-U clears the prefilled company
+        assert session.expect("Role", b"Backend Engineer\r")
+        session.settle()
+        session._send(b"\r")                  # submission date: today
+        session.settle()
+        session._send(b"n")                   # Add details now
+        session.settle()
+        session._send(b"\r")                  # Save this application?
+        session.settle()
+        session._send(b"\x1b[B" * 4 + b"\r")  # "Next step": Back to the menu
+        output, code = session.finish()
+    finally:
+        session.close()
+    assert code == 0, output
+    companies = [row["company"] for row in payload(run, "list", "--json")]
+    assert companies == ["Fixed GmbH"]
+    assert "already at the first question" not in output
+
+
+def test_interactive_add_escape_at_the_review_walks_back_through_the_answers(run, project_root):
+    """Escape at "Save this application?" goes back one question at a time."""
+    session = _PtySession(project_root, run.db, ["add"])
+    try:
+        assert session.expect("Company", b"Acme GmbH\r")
+        assert session.expect("Role", b"Backend Engineer\r")
+        assert session.expect("Submission date", b"\r")
+        assert session.expect("Add details now", b"n")
+        assert session.expect("Review the new application", b"")
+        assert session.expect("Save this application?", b"\x1b")   # -> Add details
+        assert session.expect("Add details now", b"\x1b")           # -> date
+        assert session.expect("Submission date", b"\x1b")           # -> role
+        assert session.expect("Role", b"\x15Senior Engineer\r")
+        assert session.expect("Submission date", b"\r")
+        assert session.expect("Add details now", b"n")
+        assert session.expect("Save this application?", b"y")
+        assert session.expect("Next step", b"\x1b[B" * 4 + b"\r")
+        output, code = session.finish()
+    finally:
+        session.close()
+    assert code == 0, output
+    listed = payload(run, "list", "--json")
+    assert [(row["company"], row["role"]) for row in listed] == [
+        ("Acme GmbH", "Senior Engineer")]
+
+
 def test_interactive_add_can_start_from_an_intake_folder(run, project_root):
     """The folder question supplies the company name and the job url from source.txt."""
     folder = project_root / "applications" / "Globex_155461"

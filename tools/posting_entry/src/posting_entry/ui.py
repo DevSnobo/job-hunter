@@ -72,17 +72,37 @@ def answer_processor():
     return AnswerClassProcessor()
 
 
-def read_coloured_line(prompt: str) -> str:
+class Back(Exception):
+    """Escape was pressed: return to the previous question."""
+
+
+def read_coloured_line(prompt: str, *, back: bool = False) -> str:
     """Read one line with the typed text in the shared ``answer`` colour.
 
     The prompt string is passed through verbatim: questionary adds no prefix
     either, so the visible question stays exactly the same text.  Raises the
     same exceptions as :func:`input`, i.e. ``EOFError`` on Ctrl-D and
     ``KeyboardInterrupt`` on Ctrl-C.
+
+    With ``back=True``, Escape leaves the question with :class:`Back` instead
+    of inserting anything.  The binding is eager so a bare Escape does not wait
+    for a meta-key sequence; prompt_toolkit still recognises the arrow keys
+    (which also start with Escape) before it.
     """
     from prompt_toolkit import PromptSession
 
-    session = PromptSession(style=input_style(), input_processors=[answer_processor()])
+    key_bindings = None
+    if back:
+        from prompt_toolkit.key_binding import KeyBindings
+
+        key_bindings = KeyBindings()
+
+        @key_bindings.add("escape", eager=True)
+        def go_back(event):
+            event.app.exit(exception=Back())
+
+    session = PromptSession(style=input_style(), input_processors=[answer_processor()],
+                            key_bindings=key_bindings)
     return session.prompt(prompt)
 
 
@@ -132,7 +152,8 @@ class Ui:
         except (AttributeError, OSError, ValueError):  # pragma: no cover - closed stream
             return False
 
-    def _read_line(self, *, prompt: str | None = None, eof_is_finish: bool = False):
+    def _read_line(self, *, prompt: str | None = None, eof_is_finish: bool = False,
+                   back: bool = False):
         """Return the next line without its newline, or None on EOF.
 
         ``prompt`` is passed by the single-line questions only.  With it, and on
@@ -146,7 +167,11 @@ class Ui:
         """
         if prompt is not None and self.coloured_input_allowed():
             try:
+                if back:
+                    return read_coloured_line(prompt, back=True)
                 return read_coloured_line(prompt)
+            except Back:
+                raise
             except KeyboardInterrupt:
                 raise Cancelled("interrupted") from None
             except EOFError:
@@ -176,30 +201,33 @@ class Ui:
             line = line[:-1]
         return line
 
-    def ask_optional(self, prompt: str, *, default: str = ""):
+    def ask_optional(self, prompt: str, *, default: str = "", back: bool = False):
         """Ask for one line. Blank input yields ``default``; EOF returns ``None``.
 
         Use this when end-of-input means "stop normally" rather than "cancel".
+        With ``back=True``, Escape raises :class:`Back` so the caller can ask the
+        previous question again.
         """
-        line = self._read_line(prompt=prompt)
+        line = self._read_line(prompt=prompt, back=back)
         if line is None:
             self.say()
             return None
         line = line.strip()
         return line or default
 
-    def ask(self, prompt: str, *, default: str = "") -> str:
+    def ask(self, prompt: str, *, default: str = "", back: bool = False) -> str:
         """Ask for one line. Blank input yields ``default``; EOF cancels."""
-        line = self.ask_optional(prompt, default=default)
+        line = self.ask_optional(prompt, default=default, back=back)
         if line is None:
             raise Cancelled("end of input")
         return line
 
-    def ask_yes_no_or_eof(self, prompt: str, *, default: bool = True):
+    def ask_yes_no_or_eof(self, prompt: str, *, default: bool = True,
+                          back: bool = False):
         """Like ``ask_yes_no`` but return ``None`` on EOF instead of cancelling."""
         suffix = "[Y/n]" if default else "[y/N]"
         while True:
-            answer = self.ask_optional(f"{prompt} {suffix} ")
+            answer = self.ask_optional(f"{prompt} {suffix} ", back=back)
             if answer is None:
                 return None
             answer = answer.strip().lower()
@@ -211,9 +239,10 @@ class Ui:
                 return False
             self.say("Please answer 'y' or 'n'.")
 
-    def ask_yes_no(self, prompt: str, *, default: bool = True) -> bool:
+    def ask_yes_no(self, prompt: str, *, default: bool = True,
+                   back: bool = False) -> bool:
         """Ask a yes/no question. EOF cancels (nothing is written on EOF)."""
-        answer = self.ask_yes_no_or_eof(prompt, default=default)
+        answer = self.ask_yes_no_or_eof(prompt, default=default, back=back)
         if answer is None:
             raise Cancelled("end of input")
         return answer

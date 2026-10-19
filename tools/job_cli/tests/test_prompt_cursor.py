@@ -30,7 +30,7 @@ class Recorder:
         self.answers = {message: list(values) for message, values in (answers or {}).items()}
         self.unscripted = 0
 
-    def choice(self, message, options, *, default=None):
+    def choice(self, message, options, *, default=None, back=False):
         self.calls.append((message, list(options), default))
         queued = self.answers.get(message)
         if queued:
@@ -61,11 +61,12 @@ def _stub_prompts(monkeypatch, answers: dict[str, list[str]] | None = None) -> R
     recorder = Recorder(answers)
     monkeypatch.setattr(ui, "choice", recorder.choice)
     monkeypatch.setattr(ui, "text", lambda message, *, default=None, allow_blank=False,
-                        required_hint="a value is required": str(default or "Typed"))
-    monkeypatch.setattr(ui, "optional_text", lambda message, *, default=None: default)
-    monkeypatch.setattr(ui, "date", lambda message, *, default=None: default or "2026-01-05")
-    monkeypatch.setattr(ui, "confirm", lambda message, *, default=False: True)
-    monkeypatch.setattr(ui, "checkbox", lambda message, options, default=(): [])
+                        required_hint="a value is required", back=False: str(default or "Typed"))
+    monkeypatch.setattr(ui, "optional_text", lambda message, *, default=None, back=False: default)
+    monkeypatch.setattr(ui, "date", lambda message, *, default=None,
+                        back=False: default or "2026-01-05")
+    monkeypatch.setattr(ui, "confirm", lambda message, *, default=False, back=False: True)
+    monkeypatch.setattr(ui, "checkbox", lambda message, options, default=(), back=False: [])
     monkeypatch.setattr(ui, "require_interactive", lambda what="this command": None)
     monkeypatch.setattr(ui, "interactive_available", lambda: True)
     return recorder

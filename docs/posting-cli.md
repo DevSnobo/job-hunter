@@ -32,6 +32,11 @@ The four questions, in order, with the exact prompt text:
 | 3 | `Source URL (LinkedIn, Instaffo, ...; required): ` | Required; must be `http://` or `https://` with a usable host. |
 | 4 | the posting text block | Paste the text, then a line with only a dot. |
 
+While a single-line question is open, Esc goes back to the previous question
+and the answer already entered is prefilled. Stepping back from the review
+keeps the pasted posting text, so only the short answers need another look.
+Ctrl-C still cancels the current entry.
+
 The posting text block prints these four lines first:
 
 ```text

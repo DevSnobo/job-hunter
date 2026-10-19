@@ -799,6 +799,24 @@ class InputColourTests(unittest.TestCase):
         # The editor renders the question, so it must not be written twice.
         self.assertEqual(stdout.getvalue(), "")
 
+    def test_back_is_asked_of_the_coloured_reader_only_when_requested(self) -> None:
+        ui, _, _, _ = self.make_ui("")
+        with mock.patch.object(ui, "coloured_input_allowed", return_value=True), mock.patch(
+            "posting_entry.ui.read_coloured_line", return_value="Acme"
+        ) as reader:
+            self.assertEqual(ui.ask("Company name: ", back=True), "Acme")
+        reader.assert_called_once_with("Company name: ", back=True)
+
+    def test_back_from_the_reader_is_not_swallowed_by_the_fallback(self) -> None:
+        from posting_entry.ui import Back
+
+        ui, _, _, _ = self.make_ui("")
+        with mock.patch.object(ui, "coloured_input_allowed", return_value=True), mock.patch(
+            "posting_entry.ui.read_coloured_line", side_effect=Back
+        ):
+            with self.assertRaises(Back):
+                ui.ask("Company name: ", back=True)
+
     def test_coloured_eof_maps_to_none_and_to_cancelled(self) -> None:
         ui, _, stdout, _ = self.make_ui("")
         with mock.patch.object(ui, "coloured_input_allowed", return_value=True), mock.patch(
@@ -858,9 +876,9 @@ class InputColourTests(unittest.TestCase):
                 super().__init__(stdin=stdin, stdout=stdout, stderr=stderr)
                 self.prompts: list[str] = []
 
-            def ask_optional(self, prompt, *, default=""):
+            def ask_optional(self, prompt, *, default="", back=False):
                 self.prompts.append(prompt)
-                return super().ask_optional(prompt, default=default)
+                return super().ask_optional(prompt, default=default, back=back)
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "applications"
@@ -929,6 +947,52 @@ class PtyRunMixin(CliTest):
             _, status = os.waitpid(pid, 0)
         self.assertFalse(pending, f"questions never appeared: {pending!r} in {output!r}")
         return output, os.waitstatus_to_exitcode(status)
+
+
+@unittest.skipUnless(pty is not None, "requires a POSIX pty")
+class EscapeBackTests(PtyRunMixin):
+    """Escape goes back one question; the already-pasted text is kept."""
+
+    def test_escape_steps_back_to_the_previous_question(self) -> None:
+        script = [
+            ("Company name: ", b"Wrmg\r"),
+            ("Posting id (optional, blank = none): ", b"\x1b"),
+            ("Company name: ", b"\x15Warm GmbH\r"),
+            ("Posting id (optional, blank = none): ", b"A-1\r"),
+            ("Source URL (LinkedIn, Instaffo, ...; required): ", b"https://example.com/x\r"),
+            ("Posting text: paste it now.", b"Text of the posting\r.\r"),
+            ("Save this posting? [Y/n] ", b"y\r"),
+        ]
+        output, code = self.run_in_pty(
+            ["--once", "--no-cv", "--root", str(self.apps)], script)
+        self.assertEqual(code, 0, output)
+        entry = self.apps / "Warm GmbH_A-1"
+        self.assertEqual((entry / "posting.txt").read_text(encoding="utf-8"),
+                         "Text of the posting\n")
+        self.assertEqual((entry / "source.txt").read_text(encoding="utf-8"),
+                         "https://example.com/x\n")
+
+    def test_escape_at_save_returns_to_the_source_url_and_keeps_the_text(self) -> None:
+        script = [
+            ("Company name: ", b"Acme\r"),
+            ("Posting id (optional, blank = none): ", b"A-1\r"),
+            ("Source URL (LinkedIn, Instaffo, ...; required): ",
+             b"https://example.com/wrong\r"),
+            ("Posting text: paste it now.", b"Kept text\r.\r"),
+            ("Save this posting? [Y/n] ", b"\x1b"),
+            ("Source URL (LinkedIn, Instaffo, ...; required): ",
+             b"\x15https://example.com/right\r"),
+            ("Save this posting? [Y/n] ", b"y\r"),
+        ]
+        output, code = self.run_in_pty(
+            ["--once", "--no-cv", "--root", str(self.apps)], script)
+        self.assertEqual(code, 0, output)
+        entry = self.apps / "Acme_A-1"
+        self.assertEqual((entry / "posting.txt").read_text(encoding="utf-8"), "Kept text\n")
+        self.assertEqual((entry / "source.txt").read_text(encoding="utf-8"),
+                         "https://example.com/right\n")
+        # The paste is not asked for a second time after stepping back.
+        self.assertEqual(output.count(b"Posting text: paste it now."), 1)
 
 
 @unittest.skipUnless(pty is not None, "requires a POSIX pty")

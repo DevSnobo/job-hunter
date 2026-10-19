@@ -6,6 +6,7 @@ import sys
 from collections.abc import Iterable, Sequence
 
 import questionary
+from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
@@ -32,6 +33,39 @@ PROMPT_STYLE = questionary.Style([
     ("selected", "noreverse"),
     ("highlighted", "noreverse"),
 ])
+
+class Back(Exception):
+    """Escape was pressed: return to the previous question.
+
+    A multi-question flow catches this and re-asks the step before the current
+    one. Nothing has been written yet: every prompt is only collected in
+    memory until the flow's final confirmation.
+    """
+
+
+def _bind_back(question) -> None:
+    """Make Escape leave ``question`` with :class:`Back`.
+
+    questionary builds the prompt before it is asked, so the binding is added
+    to the finished application. The bindings are replaced with a merged set
+    because text and confirm prompts keep their real bindings behind a merged
+    wrapper that has no ``add`` of its own.
+
+    Escape is eager so it does not wait for a meta-key sequence. prompt_toolkit
+    still recognises the arrow keys (``Escape [ A`` and friends) before a bare
+    Escape, so lists keep working.
+    """
+    application = getattr(question, "application", None)
+    if application is None:  # pragma: no cover - only a fake prompt has none
+        return
+    bindings = KeyBindings()
+
+    @bindings.add("escape", eager=True)
+    def go_back(event):
+        event.app.exit(exception=Back())
+
+    application.key_bindings = merge_key_bindings([application.key_bindings, bindings])
+
 
 def _default_width() -> int | None:
     """Fixed wide width when output is piped or the terminal is dumb (TERM=dumb),
@@ -111,7 +145,7 @@ def _answer(value):
 
 
 def text(message: str, *, default: str | None = None, allow_blank: bool = False,
-         required_hint: str = "a value is required") -> str:
+         required_hint: str = "a value is required", back: bool = False) -> str:
     def validator(value: str) -> bool | str:
         if value is None:
             return True
@@ -119,18 +153,23 @@ def text(message: str, *, default: str | None = None, allow_blank: bool = False,
             return required_hint
         return True
 
-    answer = questionary.text(message, default=default or "", validate=validator,
-                              style=PROMPT_STYLE).ask()
-    return str(_answer(answer)).strip()
+    question = questionary.text(message, default=default or "", validate=validator,
+                                style=PROMPT_STYLE)
+    if back:
+        _bind_back(question)
+    return str(_answer(question.ask())).strip()
 
 
-def optional_text(message: str, *, default: str | None = None) -> str | None:
-    answer = questionary.text(message, default=default or "", style=PROMPT_STYLE).ask()
-    value = str(_answer(answer)).strip()
+def optional_text(message: str, *, default: str | None = None,
+                  back: bool = False) -> str | None:
+    question = questionary.text(message, default=default or "", style=PROMPT_STYLE)
+    if back:
+        _bind_back(question)
+    value = str(_answer(question.ask())).strip()
     return value or None
 
 
-def date(message: str, *, default: str | None = None) -> str:
+def date(message: str, *, default: str | None = None, back: bool = False) -> str:
     from .rules import parse_date
 
     def validator(value: str) -> bool | str:
@@ -140,9 +179,11 @@ def date(message: str, *, default: str | None = None) -> str:
             return str(exc)
         return True
 
-    answer = questionary.text(message, default=default or "", validate=validator,
-                              style=PROMPT_STYLE).ask()
-    return str(_answer(answer)).strip()
+    question = questionary.text(message, default=default or "", validate=validator,
+                                style=PROMPT_STYLE)
+    if back:
+        _bind_back(question)
+    return str(_answer(question.ask())).strip()
 
 
 def first_default(options: Sequence[tuple[str, str]],
@@ -189,18 +230,20 @@ def _bind_number_keys(question, values: Sequence[str]) -> None:
 
 
 def _select_question(message: str, options: Sequence[tuple[str, str]], *,
-                     default: str | None = None):
+                     default: str | None = None, back: bool = False):
     """The questionary select behind :func:`choice`, with the number keys bound."""
     choices = [questionary.Choice(title=label, value=value) for value, label in options]
     question = questionary.select(message, choices=choices, default=default,
                                   style=PROMPT_STYLE,
                                   instruction="(Use arrow keys or a number)")
     _bind_number_keys(question, [value for value, _ in options])
+    if back:
+        _bind_back(question)
     return question
 
 
 def choice(message: str, options: Sequence[tuple[str, str]], *,
-           default: str | None = None) -> str:
+           default: str | None = None, back: bool = False) -> str:
     """Ask for one entry of ``options``.
 
     The cursor starts on the first entry: a fresh list must never open with the
@@ -212,23 +255,28 @@ def choice(message: str, options: Sequence[tuple[str, str]], *,
     so a short list needs neither the arrow keys nor Enter; a longer list keeps
     its remaining entries on the arrow keys.
     """
-    return str(_answer(_select_question(message, options, default=default).ask()))
+    return str(_answer(_select_question(message, options, default=default,
+                                        back=back).ask()))
 
 
 def checkbox(message: str, options: Sequence[tuple[str, str]],
-             default: Iterable[str] = ()) -> list[str]:
+             default: Iterable[str] = (), back: bool = False) -> list[str]:
     defaults = set(default)
     choices = [
         questionary.Choice(title=label, value=value, checked=value in defaults)
         for value, label in options
     ]
-    answer = questionary.checkbox(message, choices=choices, style=PROMPT_STYLE).ask()
-    return list(_answer(answer))
+    question = questionary.checkbox(message, choices=choices, style=PROMPT_STYLE)
+    if back:
+        _bind_back(question)
+    return list(_answer(question.ask()))
 
 
-def confirm(message: str, *, default: bool = False) -> bool:
-    answer = questionary.confirm(message, default=default, style=PROMPT_STYLE).ask()
-    return bool(_answer(answer))
+def confirm(message: str, *, default: bool = False, back: bool = False) -> bool:
+    question = questionary.confirm(message, default=default, style=PROMPT_STYLE)
+    if back:
+        _bind_back(question)
+    return bool(_answer(question.ask()))
 
 
 def labelled_lookups(rows: Sequence[object]) -> list[tuple[str, str]]:

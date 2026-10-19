@@ -10,7 +10,7 @@ import datetime as dt
 import json
 import sqlite3
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -408,6 +408,56 @@ def _intake_source(c: Ctx, *, from_folder: str | None,
     return _prompt_intake_folder(c)
 
 
+def _always(_state: dict) -> bool:
+    return True
+
+
+@dataclass(frozen=True)
+class _WizardStep:
+    """One question in a guided flow.
+
+    ``skip`` is evaluated in both directions, so a question that does not apply
+    is passed over when the flow moves forward and when Escape moves back.
+    ``back`` names a question that actually asked something: a step that answers
+    itself (an informational note, for example) must not become the place an
+    Escape lands on, or Escape would appear not to work.
+    """
+
+    name: str
+    ask: Callable[[dict], object]
+    skip: Callable[[dict], bool]
+    back: Callable[[dict], bool] = _always
+
+
+def _run_wizard(steps: Sequence[_WizardStep], state: dict) -> dict:
+    """Ask ``steps`` in order; Escape returns to the previous question.
+
+    Each answer is kept in ``state`` and reused as the prefilled default when
+    its question is asked again, so going back never loses what was typed.
+    Nothing is written until the caller acts on the finished state.
+    """
+    index = 0
+    while index < len(steps):
+        step = steps[index]
+        if step.skip(state):
+            index += 1
+            continue
+        try:
+            state[step.name] = step.ask(state)
+        except ui.Back:
+            previous = index - 1
+            while previous >= 0 and (steps[previous].skip(state)
+                                     or not steps[previous].back(state)):
+                previous -= 1
+            if previous < 0:
+                ui.note("[dim]already at the first question[/dim]")
+            else:
+                index = previous
+            continue
+        index += 1
+    return state
+
+
 def _add_application(c: Ctx, *, company: str | None, role: str | None, submitted_on: str | None,
                      discovery_source: str | None = None, submission_channel: str | None = None,
                      recruiter_type: str | None = None, platform_name: str | None = None,
@@ -423,92 +473,205 @@ def _add_application(c: Ctx, *, company: str | None, role: str | None, submitted
         if not company:
             company = folder.company
         _report_intake(c, folder)
-    if not company:
+
+    # The questions are a small wizard: Escape steps back one question and the
+    # previous answer stays prefilled. ``details_offered`` is fixed by the
+    # caller's flags, so going back to it cannot change whether it exists.
+    details_offered = interactive and discovery_source is None
+    initial = {
+        "company": company,
+        "role": role,
+        "submitted_on": submitted_on,
+        "discovery_source": discovery_source,
+        "submission_channel": submission_channel,
+        "recruiter_type": recruiter_type,
+        "platform_name": platform_name,
+        "job_url": job_url,
+        "location": location,
+        "notes": notes,
+    }
+    state = dict(initial)
+    state["details"] = False if details_offered else None
+    noted: set[str] = set()
+
+    def note_once(message: str) -> None:
+        if message not in noted:
+            ui.note(message)
+            noted.add(message)
+
+    def ask_company(state: dict) -> str:
         ui.require_interactive()
-        company = ui.text("Company")
-    elif folder is not None and not company_given and interactive:
         # The identifier supplied the name: Enter keeps it, typing replaces it.
-        company = ui.text("Company (from the folder identifier)", default=company)
-    if not role:
-        ui.require_interactive()
-        role = ui.text("Role")
-    if not submitted_on:
-        ui.require_interactive()
-        submitted_on = ui.date("Submission date (YYYY-MM-DD)", default=rules.today())
-    submitted_on = rules.validate_date(submitted_on, field="submission date")
-    company = company.strip()
-    role = role.strip()
-    if not company or not role:
-        raise UsageError("company and role are required")
+        # Once the name has been edited, a step back shows the ordinary prompt.
+        if (folder is not None and not company_given
+                and state["company"] == folder.company):
+            return ui.text("Company (from the folder identifier)",
+                           default=state["company"], back=True)
+        return ui.text("Company", default=state["company"] or "", back=True)
 
-    if interactive and discovery_source is None:
-        if ui.confirm("Add details now (source, channel, recruiter, url, location)?", default=False):
+    def ask_role(state: dict) -> str:
+        ui.require_interactive()
+        return ui.text("Role", default=state["role"] or "", back=True)
+
+    def ask_submitted_on(state: dict) -> str:
+        ui.require_interactive()
+        return ui.date("Submission date (YYYY-MM-DD)",
+                       default=state["submitted_on"] or rules.today(), back=True)
+
+    def ask_details(state: dict) -> bool:
+        return ui.confirm("Add details now (source, channel, recruiter, url, location)?",
+                          default=bool(state["details"]), back=True)
+
+    def lookup_step(name: str, message: str):
+        def ask(state: dict) -> str:
             # "unknown" is the honest answer, so it stays the recommended one and
-            # is listed first; the cursor starts there instead of on a later line.
-            discovery_source = ui.choice(
-                "Discovery source",
-                ui.first_default(_lookup_choices(c, "discovery_source"), "unknown"),
-                default="unknown")
-            submission_channel = ui.choice(
-                "Submission channel",
-                ui.first_default(_lookup_choices(c, "submission_channel"), "unknown"),
-                default="unknown")
-            recruiter_type = ui.choice(
-                "Recruiter involvement",
-                ui.first_default(_lookup_choices(c, "recruiter_type"), "unknown"),
-                default="unknown")
-            platform_name = ui.optional_text("Platform name (Workday, GreenHouse, ...)")
-            # A job url taken from the folder's source.txt is the default, so Enter keeps it.
-            job_url = ui.optional_text("Job url", default=job_url)
-            location = ui.optional_text("Location")
-            notes = ui.optional_text("Notes")
-        else:
-            discovery_source, submission_channel, recruiter_type = "unknown", "unknown", "unknown"
+            # is listed first; a previously chosen answer is moved to the front
+            # in the same way when the question is asked again.
+            prior = state[name] or "unknown"
+            options = ui.first_default(_lookup_choices(c, name), prior)
+            return ui.choice(message, options, default=options[0][0], back=True)
 
-    existing = repo.similar_applications(c.conn, company)
-    if existing:
-        likely_duplicates = [row for row in existing
-                             if _same_posting(row, role=role, job_url=job_url)]
-        if likely_duplicates:
-            message = (f"{company} already has an application for this posting:"
-                       f" {_application_listing(likely_duplicates)}")
-            if force:
-                ui.note(f"[yellow]note:[/yellow] {message}")
-            elif c.interactive and not c.yes:
-                ui.note(f"[yellow]note:[/yellow] {message}")
-                if not ui.confirm("Record a second application for it anyway?", default=True):
-                    raise Cancelled("duplicate application declined")
-            else:
-                raise UsageError(message + " (pass --force to record it anyway)")
-        else:
-            # Several postings per employer are normal: this is a new application,
-            # not a reapplication, so the other entries are only worth mentioning.
-            ui.note(f"[dim]{company} also has {len(existing)} application(s):"
-                    f" {_application_listing(existing)} - a different posting is a separate"
-                    " application here[/dim]")
+        return ask
 
-    if c.interactive and not c.yes:
+    def detail_text(name: str, message: str):
+        def ask(state: dict) -> str | None:
+            return ui.optional_text(message, default=state[name] or "", back=True)
+
+        return ask
+
+    def existing_and_likely(state: dict) -> tuple[list, list]:
+        current_company = str(state["company"] or "").strip()
+        current_role = str(state["role"] or "").strip()
+        existing = repo.similar_applications(c.conn, current_company)
+        likely = [row for row in existing
+                  if _same_posting(row, role=current_role, job_url=state["job_url"])]
+        return existing, likely
+
+    def duplicate_prompt_needed(state: dict) -> bool:
+        _existing, likely = existing_and_likely(state)
+        return bool(likely) and interactive and not c.yes and not force
+
+    def ask_duplicate(state: dict) -> bool:
+        existing, likely = existing_and_likely(state)
+        if not existing:
+            return True
+        current_company = str(state["company"] or "").strip()
+        if not likely:
+            # Several postings per employer are normal: this is a new
+            # application, not a reapplication, so the other entries are only
+            # worth mentioning.
+            note_once(
+                f"[dim]{current_company} also has {len(existing)} application(s):"
+                f" {_application_listing(existing)} - a different posting is a separate"
+                " application here[/dim]")
+            return True
+        message = (f"{current_company} already has an application for this posting:"
+                   f" {_application_listing(likely)}")
+        if force:
+            note_once(f"[yellow]note:[/yellow] {message}")
+            return True
+        if interactive and not c.yes:
+            note_once(f"[yellow]note:[/yellow] {message}")
+            if not ui.confirm("Record a second application for it anyway?",
+                              default=True, back=True):
+                raise Cancelled("duplicate application declined")
+            return True
+        raise UsageError(message + " (pass --force to record it anyway)")
+
+    def ask_review(state: dict) -> None:
         _review_new_application(
-            c, company=company, role=role, submitted_on=submitted_on,
-            discovery_source=discovery_source or "unknown",
-            submission_channel=submission_channel or "unknown",
-            recruiter_type=recruiter_type or "unknown", platform_name=platform_name,
-            job_url=job_url, location=location, notes=notes,
+            c, company=str(state["company"] or "").strip(),
+            role=str(state["role"] or "").strip(),
+            submitted_on=rules.validate_date(str(state["submitted_on"] or ""),
+                                             field="submission date"),
+            discovery_source=state["discovery_source"] or "unknown",
+            submission_channel=state["submission_channel"] or "unknown",
+            recruiter_type=state["recruiter_type"] or "unknown",
+            platform_name=state["platform_name"], job_url=state["job_url"],
+            location=state["location"], notes=state["notes"],
             intake_folder=folder.name if folder else None,
         )
+        return None
+
+    def detail_step(name: str, message: str) -> _WizardStep:
+        return _WizardStep(
+            name,
+            detail_text(name, message),
+            lambda state: not (details_offered and state["details"]),
+        )
+
+    # Only a caller-supplied value skips a question. A value the user typed is
+    # still a place to return to when Escape walks back through the flow.
+    role_preset = bool(role)
+    submitted_preset = bool(submitted_on)
+
+    def skip_company(state: dict) -> bool:
+        return company_given or (not interactive and bool(state["company"]))
+
+    steps = [
+        _WizardStep("company", ask_company, skip_company),
+        _WizardStep("role", ask_role, lambda state: role_preset),
+        _WizardStep("submitted_on", ask_submitted_on,
+                    lambda state: submitted_preset),
+        _WizardStep("details", ask_details, lambda state: not details_offered),
+        _WizardStep(
+            "discovery_source",
+            lookup_step("discovery_source", "Discovery source"),
+            lambda state: not (details_offered and state["details"]),
+        ),
+        _WizardStep(
+            "submission_channel",
+            lookup_step("submission_channel", "Submission channel"),
+            lambda state: not (details_offered and state["details"]),
+        ),
+        _WizardStep(
+            "recruiter_type",
+            lookup_step("recruiter_type", "Recruiter involvement"),
+            lambda state: not (details_offered and state["details"]),
+        ),
+        detail_step("platform_name", "Platform name (Workday, GreenHouse, ...)"),
+        # A job url taken from the folder's source.txt is the default, so Enter keeps it.
+        detail_step("job_url", "Job url"),
+        detail_step("location", "Location"),
+        detail_step("notes", "Notes"),
+        _WizardStep("duplicate", ask_duplicate, lambda state: False,
+                    back=duplicate_prompt_needed),
+        _WizardStep("review", ask_review, lambda state: not (interactive and not c.yes)),
+    ]
+
+    if interactive:
+        ui.note("[dim]Press Esc to go back one question.[/dim]")
+    _run_wizard(steps, state)
+
+    company = str(state["company"] or "").strip()
+    role = str(state["role"] or "").strip()
+    submitted_on = rules.validate_date(str(state["submitted_on"] or ""),
+                                       field="submission date")
+    if not company or not role:
+        raise UsageError("company and role are required")
+    if details_offered and not state["details"]:
+        # The detail block was declined (or answered "no" after a step back):
+        # the three lookup answers are "unknown" again and the optional text
+        # keeps whatever the caller supplied, exactly as before.
+        state["discovery_source"] = "unknown"
+        state["submission_channel"] = "unknown"
+        state["recruiter_type"] = "unknown"
+        for name in ("platform_name", "job_url", "location", "notes"):
+            state[name] = initial[name]
+
     app_id = repo.add_application(
         c.conn,
         company=company,
         role=role,
         submitted_on=submitted_on,
-        discovery_source=discovery_source or "unknown",
-        submission_channel=submission_channel or "unknown",
-        recruiter_type=recruiter_type or "unknown",
-        platform_name=platform_name,
+        discovery_source=state["discovery_source"] or "unknown",
+        submission_channel=state["submission_channel"] or "unknown",
+        recruiter_type=state["recruiter_type"] or "unknown",
+        platform_name=state["platform_name"],
         source_detail=source_detail,
-        job_url=job_url,
-        location=location,
-        notes=notes,
+        job_url=state["job_url"],
+        location=state["location"],
+        notes=state["notes"],
         intake_folder=folder.name if folder else None,
     )
     return app_id
@@ -535,7 +698,7 @@ def _review_new_application(c: Ctx, *, company: str, role: str, submitted_on: st
     ]
     ui.render_table("Review the new application",
                     ("field", "value"), details, empty="nothing entered")
-    if not ui.confirm("Save this application?", default=True):
+    if not ui.confirm("Save this application?", default=True, back=True):
         raise Cancelled("application not saved")
 
 
@@ -566,6 +729,9 @@ def add(
     application starts from a folder that the posting capture tool wrote under
     applications/, so the company name and the job url do not have to be typed
     again. Every folder stays on disk unchanged; see also `job intake`.
+
+    In a terminal, Esc at any question goes back one question with the previous
+    answer prefilled.
     """
     c = _ctx(ctx)
     if json_flag:

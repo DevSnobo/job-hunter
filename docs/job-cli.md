@@ -108,6 +108,11 @@ Two guards run before the write: a likely duplicate (same company with the same
 job url, or, without urls, the same role) needs `--force` or an interactive
 confirmation, and in a terminal the tool shows a review table first.
 
+In a terminal, Esc at any question in the add flow goes back one question. The
+answer that was already entered comes back as the prefilled default, so a typo
+or a forgotten detail can be corrected without starting over. Ctrl-C still
+cancels the entry.
+
 ```bash
 ./job add \
   --company "Ada Lovelace Analytics" \

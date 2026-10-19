@@ -26,7 +26,7 @@ from .store import (
     normalize_source_url,
     save_entry,
 )
-from .ui import Cancelled, Ui, normalize_pasted_text, read_clipboard
+from .ui import Back, Cancelled, Ui, normalize_pasted_text, read_clipboard
 
 CANCEL_EXIT = 130
 
@@ -56,6 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "Typical use: run ./posting and answer the four questions. Posting text is pasted "
             "as multiple lines and finished with a line containing only a dot. "
+            "Press Esc while a question is open to go back one question. "
             "After a saved posting the tool offers once to generate the tailored DE and EN CVs "
             "with the sibling ./cv tool. "
             "Options only pre-answer the questions, e.g. for scripting or tests."
@@ -82,12 +83,17 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _answer(ui: Ui, preset: str | None, prompt: str, validator, *, default: str = "") -> str:
-    """Use the preset answer when given, otherwise ask until the value is valid."""
+def _answer(ui: Ui, preset: str | None, prompt: str, validator, *, default: str = "",
+            back: bool = False) -> str:
+    """Use the preset answer when given, otherwise ask until the value is valid.
+
+    ``back`` is passed to the single-line prompt: Escape then raises
+    :class:`Back` up to the capture flow, which re-asks the previous question.
+    """
     if preset is not None:
         return validator(preset)
     while True:
-        raw = ui.ask(prompt, default=default)
+        raw = ui.ask(prompt, default=default, back=back)
         try:
             return validator(raw)
         except InvalidInput as exc:
@@ -160,7 +166,8 @@ def _resolve_collision(ui: Ui, root: Path, company: str, posting_id: str) -> tup
         ui.say(f"Destination already exists: {dest}")
         ui.say(f"  it is a {describe_conflict(dest)}")
         ui.say("Existing folders are never overwritten, renamed or deleted.")
-        choice = ui.ask("[o]ther posting id / [s]kip this posting / [c]ancel: ", default="").lower()
+        choice = ui.ask("[o]ther posting id / [s]kip this posting / [c]ancel: ",
+                        default="", back=True).lower()
         if choice in {"o", "other"}:
             # Always ask for the new id; reusing the preset would instantly
             # collide again and consume the real answer as a menu choice.
@@ -169,6 +176,7 @@ def _resolve_collision(ui: Ui, root: Path, company: str, posting_id: str) -> tup
                 None,
                 "Posting id (blank = none; use one that does not exist yet): ",
                 _posting_id_validator,
+                back=True,
             )
             continue
         if choice in {"s", "skip"}:
@@ -183,49 +191,118 @@ def capture_one(ui: Ui, root: Path, args, *, source_from_clipboard: bool = False
 
     ``source_from_clipboard`` is the resolved config value for the posting text
     (see :func:`_posting_text`).
+
+    The single-line questions form a small wizard: Escape goes back one
+    question and the previous answer stays as the prefilled default. A pasted
+    posting text is already in memory, so stepping back from the review keeps
+    it and does not ask for the paste again.
     """
-    company = _answer(ui, args.company, "Company name: ", _company_validator)
-    posting_id = _answer(
-        ui,
-        args.posting_id,
-        "Posting id (optional, blank = none): ",
-        _posting_id_validator,
-    )
-    source_url = _answer(
-        ui,
-        args.source,
-        "Source URL (LinkedIn, Instaffo, ...; required): ",
-        _source_validator,
-    )
+    state = {
+        "company": None,
+        "posting_id": None,
+        "source_url": None,
+        "text": None,
+        "name": None,
+        "action": None,
+    }
+    # A preset is still validated immediately, exactly as _answer did before.
+    if args.company is not None:
+        state["company"] = _company_validator(args.company)
+    if args.posting_id is not None:
+        state["posting_id"] = _posting_id_validator(args.posting_id)
+    if args.source is not None:
+        state["source_url"] = _source_validator(args.source)
 
-    company, posting_id, name, action = _resolve_collision(ui, root, company, posting_id)
-    if action == "skip":
-        ui.say(f"Skipped {name}; the existing folder is untouched.")
-        return "skipped"
+    stages = ["company", "posting_id", "source_url", "collision", "text", "review"]
+    key_stages = {"company", "posting_id", "source_url"}
 
-    text = _posting_text(ui, args, source_from_clipboard=source_from_clipboard)
-    dest = root / name
+    def skipped(stage: str) -> bool:
+        if stage == "company":
+            return args.company is not None
+        if stage == "posting_id":
+            return args.posting_id is not None
+        if stage == "source_url":
+            return args.source is not None
+        if stage == "collision":
+            return state["action"] is not None
+        if stage == "text":
+            return state["text"] is not None
+        return False
 
-    ui.say()
-    ui.say("--- review ---")
-    ui.say(f"Company    : {company}")
-    ui.say(f"Posting id : {posting_id or '-'}")
-    ui.say(f"Folder     : {dest}")
-    ui.say(f"Source URL : {source_url or '-'}")
-    ui.say(f"Text       : {len(text.splitlines())} lines, {len(text)} characters")
-    for line in text.splitlines()[:3]:
-        ui.say(f"  | {line[:100]}")
-    if len(text.splitlines()) > 3:
-        ui.say("  | ...")
+    def previous_question(index: int) -> int:
+        for candidate in range(index - 1, -1, -1):
+            if stages[candidate] in key_stages and not skipped(stages[candidate]):
+                return candidate
+        return -1
 
-    if not ui.ask_yes_no("Save this posting?", default=True):
-        ui.say("Discarded; nothing was written.")
-        return "discarded"
+    if ui.interactive_session():
+        ui.say("Press Esc during a question to go back one step.")
 
-    saved = save_entry(root, name, text, source_url)
-    ui.say(f"Saved {saved}")
-    _offer_cv(ui, root, name, args)
-    return "saved"
+    index = 0
+    while index < len(stages):
+        stage = stages[index]
+        if skipped(stage):
+            index += 1
+            continue
+        try:
+            if stage == "company":
+                state["action"] = state["name"] = None
+                state["company"] = _answer(
+                    ui, None, "Company name: ", _company_validator,
+                    default=state["company"] or "", back=True)
+            elif stage == "posting_id":
+                state["action"] = state["name"] = None
+                state["posting_id"] = _answer(
+                    ui, None, "Posting id (optional, blank = none): ",
+                    _posting_id_validator, default=state["posting_id"] or "", back=True)
+            elif stage == "source_url":
+                state["action"] = state["name"] = None
+                state["source_url"] = _answer(
+                    ui, None, "Source URL (LinkedIn, Instaffo, ...; required): ",
+                    _source_validator, default=state["source_url"] or "", back=True)
+            elif stage == "collision":
+                company, posting_id, name, action = _resolve_collision(
+                    ui, root, state["company"], state["posting_id"])
+                state.update(company=company, posting_id=posting_id, name=name, action=action)
+                if action == "skip":
+                    ui.say(f"Skipped {name}; the existing folder is untouched.")
+                    return "skipped"
+            elif stage == "text":
+                state["text"] = _posting_text(
+                    ui, args, source_from_clipboard=source_from_clipboard)
+            elif stage == "review":
+                name = state["name"]
+                text = state["text"]
+                dest = root / name
+                ui.say()
+                ui.say("--- review ---")
+                ui.say(f"Company    : {state['company']}")
+                ui.say(f"Posting id : {state['posting_id'] or '-'}")
+                ui.say(f"Folder     : {dest}")
+                ui.say(f"Source URL : {state['source_url'] or '-'}")
+                ui.say(f"Text       : {len(text.splitlines())} lines, {len(text)} characters")
+                for line in text.splitlines()[:3]:
+                    ui.say(f"  | {line[:100]}")
+                if len(text.splitlines()) > 3:
+                    ui.say("  | ...")
+
+                if not ui.ask_yes_no("Save this posting?", default=True, back=True):
+                    ui.say("Discarded; nothing was written.")
+                    return "discarded"
+
+                saved = save_entry(root, name, text, state["source_url"])
+                ui.say(f"Saved {saved}")
+                _offer_cv(ui, root, name, args)
+                return "saved"
+        except Back:
+            previous = previous_question(index)
+            if previous < 0:
+                ui.say("Already at the first question.")
+            else:
+                index = previous
+            continue
+        index += 1
+    raise AssertionError("the capture flow ended without a result")  # pragma: no cover
 
 
 def _offer_cv(ui: Ui, root: Path, folder: str, args) -> None:
