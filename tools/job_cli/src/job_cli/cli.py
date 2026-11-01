@@ -1112,17 +1112,31 @@ def log(
 # --------------------------------------------------------------------------
 # list / show
 # --------------------------------------------------------------------------
-def _render_overview(c: Ctx, rows, *, title: str = "Applications") -> None:
+def _split_closed(rows) -> tuple[list[sqlite3.Row], list[sqlite3.Row]]:
+    """Split overview rows into (still open, closed backlog).
+
+    Closed means repo.CLOSED_STATUSES: rejected, withdrawn, offer_declined,
+    position_closed and inactive. Accepted and started applications are not
+    closed, so they stay in the default view.
+    """
+    closed = [row for row in rows if str(row["current_status"]) in repo.CLOSED_STATUSES]
+    open_rows = [row for row in rows if str(row["current_status"]) not in repo.CLOSED_STATUSES]
+    return open_rows, closed
+
+
+def _render_overview(c: Ctx, rows, *, title: str = "Applications", hidden: int = 0) -> None:
     """Print the application table with its counters below it.
 
     The counters describe the whole tracker (reporting.tracker_summary), so a
     filtered table still answers "how many do I have, how many are in progress,
     how many were rejected"; the row count of the table is appended when it
     differs. The same summary decides which in_progress rows already have an
-    employer response, which is what the status colours show.
+    employer response, which is what the status colours show. ``hidden`` is the
+    number of closed rows the caller left out of the table.
     """
     ui.render_applications(rows, title=title,
-                           summary=reporting.tracker_summary(c.conn, c.layout))
+                           summary=reporting.tracker_summary(c.conn, c.layout),
+                           hidden=hidden)
 
 
 @app.command("list")
@@ -1131,16 +1145,36 @@ def list_cmd(
     status: str = typer.Option(None, "--status", help="Filter by current status."),
     search: str = typer.Option(None, "--search", help="Substring of company or role."),
     open_only: bool = typer.Option(False, "--open", help="Only in_progress and offer_pending."),
+    closed_only: bool = typer.Option(
+        False, "--closed", help="Only closed applications: rejected, withdrawn, and the like."),
+    show_all: bool = typer.Option(
+        False, "--all", help="Include closed applications (the default view hides them)."),
     limit: int = typer.Option(None, "--limit", help="Show at most this many rows."),
     json_flag: bool = typer.Option(False, "--json", help="Machine-readable JSON output."),
 ) -> None:
-    """Browse and search applications."""
+    """Browse and search applications.
+
+    The default view leaves the closed backlog (rejected, withdrawn, ...) out of
+    the table so the applications still moving stay in focus. --all brings every
+    application back, --closed shows only the closed ones, --status replaces the
+    view, and --search narrows whichever view is chosen.
+    """
     c = _ctx(ctx)
     if json_flag:
         c.json_output = True
+    chosen = [flag for flag, on in (("--status", status is not None), ("--open", open_only),
+                                    ("--closed", closed_only), ("--all", show_all)) if on]
+    if len(chosen) > 1:
+        raise UsageError("choose one of --status, --open, --closed, --all")
     rows = reporting.overview(c.conn, c.layout, search=search, status=status)
-    if open_only:
-        rows = [row for row in rows if row["current_status"] in repo.ACTIVE_STATUSES]
+    hidden: list = []
+    if status is None:
+        if open_only:
+            rows = [row for row in rows if str(row["current_status"]) in repo.ACTIVE_STATUSES]
+        elif closed_only:
+            rows = [row for row in rows if str(row["current_status"]) in repo.CLOSED_STATUSES]
+        elif not show_all:
+            rows, hidden = _split_closed(rows)
     if limit:
         rows = rows[:limit]
     if c.json_output:
@@ -1148,8 +1182,9 @@ def list_cmd(
         return
     if not rows:
         ui.console.print("[yellow]no applications match[/yellow]")
+        ui.render_hidden_closed(len(hidden))
         return
-    _render_overview(c, rows)
+    _render_overview(c, rows, hidden=len(hidden))
 
 
 def _show_application(c: Ctx, app_id: str) -> None:
@@ -2342,10 +2377,19 @@ def _menu_posting(c: Ctx) -> None:
 def _menu_browse(c: Ctx) -> None:
     search = ui.text("Search company or role (blank lists recent)", allow_blank=True)
     rows = reporting.overview(c.conn, c.layout, search=search or None)
+    hidden = 0
+    if rows:
+        open_rows, closed = _split_closed(rows)
+        include_closed = bool(closed) and ui.confirm(
+            f"{len(closed)} closed application{'' if len(closed) == 1 else 's'}"
+            " hidden. Show them too?", default=False)
+        if not include_closed:
+            rows, hidden = open_rows, len(closed)
     if not rows:
         ui.console.print("[yellow]no applications match[/yellow]")
+        ui.render_hidden_closed(hidden)
         return
-    _render_overview(c, rows)
+    _render_overview(c, rows, hidden=hidden)
     if ui.confirm("Open one of these?", default=False):
         app = _choose_from_rows(c, rows)
         _show_application(c, str(app["id"]))

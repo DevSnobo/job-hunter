@@ -78,7 +78,8 @@ Create the database and the schema, then use the tools:
 ```bash
 ./job db migrate     # creates data/job.sqlite3 and applies sql/migrations/
 ./job                # menu -> "1. Prepare application": capture a posting, take the offered CVs, register it
-./job list           # browse what you registered
+./job list           # browse the applications still in progress
+./job list --all     # include the closed backlog (rejected, withdrawn, ...)
 ```
 
 Prefer one tool per step? `./posting` captures a posting, `./cv` tailors the

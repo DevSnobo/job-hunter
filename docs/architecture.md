@@ -77,8 +77,9 @@ its path.
 
 ### `job list --json` and `job show --json`
 
-`./job list --json` prints one object per application, straight from
-`sql/queries/application_overview.sql`:
+`./job list --json` prints one object per application in the current view,
+straight from `sql/queries/application_overview.sql`. The default view leaves
+closed applications out; `--all` prints every application:
 
 ```json
 {

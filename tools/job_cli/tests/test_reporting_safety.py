@@ -33,7 +33,7 @@ MALICIOUS_REPLAY_SQL = [
 
 
 def _app_ids(run) -> list[str]:
-    return sorted(row["id"] for row in rows(run, "list", "--json"))
+    return sorted(row["id"] for row in rows(run, "list", "--all", "--json"))
 
 
 def _metadata(out_dir: Path) -> dict:
@@ -95,7 +95,7 @@ def test_replay_never_executes_metadata_sql(run, new_app, log_ok, tmp_path, quer
 
     assert data["executed_metadata_sql"] is False
     assert _app_ids(run) == before  # nothing was deleted, updated, or inserted
-    assert len(rows(run, "list", "--json")) == len(before)
+    assert len(rows(run, "list", "--all", "--json")) == len(before)
     assert data["frozen_reproduced"] is True  # edges came from the frozen rows
     assert data["pair_consistent"] is True
 

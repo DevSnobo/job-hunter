@@ -58,7 +58,7 @@ Notes:
 |---|---|
 | `add` | Register a submitted application (the only thing that creates a new application). |
 | `log` | Log what happened next (the most common action). |
-| `list` | Browse and search applications. |
+| `list` | Browse and search applications; closed applications are hidden until you ask for them. |
 | `show` | Show one application in full: attributes, timeline, rounds, files. |
 | `posting` | Read the job posting of an application again. |
 | `intake` | List the intake folders under `applications/` and the application each one produced. |
@@ -210,6 +210,8 @@ Browse and search applications.
 | `--status` | `<str>` | Filter by current status. |
 | `--search` | `<str>` | Substring of company or role. |
 | `--open` | | Only `in_progress` and `offer_pending`. |
+| `--closed` | | Only closed applications: `rejected`, `withdrawn`, `offer_declined`, `position_closed`, `inactive`. |
+| `--all` | | Include closed applications. |
 | `--limit` | `<int>` | Show at most this many rows. |
 | `--json` | | Machine-readable JSON output. |
 | `--help` | | Show this message and exit. |
@@ -217,8 +219,41 @@ Browse and search applications.
 What it writes: nothing. The printed table carries the status legend and the
 tracker counters below it.
 
-`--status` is passed to the reporting query as it is; an unknown value is not
-an error, the table is just empty:
+The default view leaves the closed backlog out, so the applications that are
+still moving stay in focus. Closed means `rejected`, `withdrawn`,
+`offer_declined`, `position_closed`, and `inactive`; an accepted or started
+application is not closed. The counters under the table still describe the whole
+tracker, and a line below them says how many closed applications are hidden:
+
+```bash
+./job list
+```
+
+```text
+12 applications tracked · rejected 7 · in_progress 5 (2 answered, 3 waiting) - showing 5
+7 closed applications hidden · job list --all includes them
+```
+
+Ask for them when you want them: `--all` prints every application, `--closed`
+prints only the closed ones, and `--status rejected` prints one status. `--open`
+is narrower than the default: it keeps only `in_progress` and `offer_pending`.
+Pass at most one of `--status`, `--open`, `--closed`, and `--all`:
+
+```bash
+./job list --closed
+./job list --all
+./job list --all --search "acme"
+./job list --all --open ; echo $?
+```
+
+```text
+error: choose one of --status, --open, --closed, --all
+2
+```
+
+`--search` filters the chosen view, and `--json` prints the same rows as the
+table. `--status` is passed to the reporting query as it is; an unknown value
+is not an error, the table is just empty:
 
 ```bash
 ./job list --status not_a_status ; echo $?
@@ -781,7 +816,7 @@ under `applications/` is always kept. In a non-interactive run, a missing
 | `1. Prepare application` | run the sibling `./posting` capture, then offer each new folder the `add` flow |
 | `2. Add submitted application` | the `add` flow, then the "Next step" sub-menu |
 | `3. Log an update` | pick an application, then the `log` flow |
-| `4. Browse/search applications` | search box, the applications table, optional open |
+| `4. Browse/search applications` | search box, the applications table (closed ones offered on request), optional open |
 | `5. Read a job posting` | pick an application, then print its stored posting |
 | `6. Upcoming interviews / waiting applications` | reference date, then `upcoming`, then `waiting` with a stale threshold |
 | `7. Statistics and export` | `stats`, Sankey export, private snapshot, or replay |

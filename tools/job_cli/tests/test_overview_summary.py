@@ -1,10 +1,10 @@
-"""Sum counters under a printed table, the answered/waiting split, and the
-rejected-last display order.
+"""Sum counters under a printed table, the answered/waiting split, the closed
+backlog the default view hides, and the rejected-last display order.
 
 Two review items meet here: the counters and colours under the application
 overview table, and the display order that keeps rejected applications at the
-bottom. Both are display-only: the SQL order and the --json output stay as they
-are, because a machine reader must keep seeing the query's order and its keys.
+bottom. The SQL order is untouched. The default list view leaves closed
+applications out of both the table and --json; explicit filters ask for them.
 """
 from __future__ import annotations
 
@@ -252,7 +252,8 @@ def test_render_applications_without_a_summary_still_prints_the_table(monkeypatc
 # --------------------------------------------------------------------------
 # the CLI surface
 # --------------------------------------------------------------------------
-def test_list_prints_the_counters_under_the_table(run, log_ok):
+def test_list_focuses_on_the_open_applications_and_counts_the_rest(run, log_ok):
+    """The rejected backlog stays in the counters, not in the default table."""
     build_mixed(run, log_ok)
     result = run("list")
     assert result.ok, result.output
@@ -260,11 +261,45 @@ def test_list_prints_the_counters_under_the_table(run, log_ok):
     assert "3 applications tracked" in text
     assert "in_progress 2 (1 answered, 1 waiting)" in text
     assert "rejected 1" in text
-    assert "showing" not in text, "an unfiltered table keeps its single clean line"
+    assert "- showing 2" in text
+    assert "Replied GmbH" in text and "Quiet AG" in text
+    assert "Closed KG" not in text
+    assert "1 closed application hidden" in text
+    assert "job list --all includes them" in text
     assert text.index("legend:") > text.index("Applications")
-    # The counters come after the table, the usage hint comes last.
-    assert text.index("3 applications tracked") > text.index("Closed KG")
-    assert text.index("Use the short id") > text.index("3 applications tracked")
+    # The counters come after the table, the hidden hint follows them, the usage
+    # hint comes last.
+    assert text.index("3 applications tracked") > text.index("Quiet AG")
+    assert text.index("1 closed application hidden") > text.index("3 applications tracked")
+    assert text.index("Use the short id") > text.index("1 closed application hidden")
+
+
+def test_list_all_brings_the_closed_backlog_back(run, log_ok):
+    build_mixed(run, log_ok)
+    result = run("list", "--all")
+    assert result.ok, result.output
+    text = result.output
+    assert "Closed KG" in text
+    assert "showing" not in text, "the whole tracker is shown"
+    assert "closed application" not in text
+
+
+def test_list_closed_shows_only_the_closed_backlog(run, log_ok):
+    build_mixed(run, log_ok)
+    result = run("list", "--closed")
+    assert result.ok, result.output
+    text = result.output
+    assert "Closed KG" in text
+    assert "Replied GmbH" not in text and "Quiet AG" not in text
+    assert "- showing 1" in text
+    assert "closed application" not in text
+
+
+def test_list_refuses_conflicting_view_flags(run, log_ok):
+    build_mixed(run, log_ok)
+    result = run("list", "--all", "--closed")
+    assert result.exit_code == 2
+    assert "choose one of --status, --open, --closed, --all" in result.output
 
 
 def test_a_filtered_table_keeps_the_tracker_counters_and_says_how_many_it_shows(run, log_ok):
@@ -282,8 +317,9 @@ def test_a_limited_table_says_how_many_it_shows(run, log_ok):
     build_mixed(run, log_ok)
     result = run("list", "--limit", "1")
     assert result.ok, result.output
-    assert "3 applications tracked" in result.output
-    assert result.output.rstrip().splitlines()[-2].endswith("- showing 1")
+    line = next(line for line in result.output.splitlines() if "tracked" in line)
+    assert "3 applications tracked" in line
+    assert line.endswith("- showing 1")
 
 
 def test_an_open_only_table_says_how_many_it_shows(run, log_ok):
@@ -296,15 +332,15 @@ def test_an_open_only_table_says_how_many_it_shows(run, log_ok):
 
 def test_list_prints_the_rejected_application_last(run, log_ok):
     build_mixed(run, log_ok)
-    text = run("list").output
+    text = run("list", "--all").output
     order = [text.index(name) for name in ("Quiet AG", "Replied GmbH", "Closed KG")]
     assert order == sorted(order)
 
 
 def test_list_json_keeps_the_query_order_and_the_old_keys(run, log_ok):
-    """The counters are human-path only; a machine reader sees exactly what it saw."""
+    """The counters are human-path only; --all keeps every row and the old keys."""
     build_mixed(run, log_ok)
-    result = run("list", "--json")
+    result = run("list", "--all", "--json")
     assert result.ok, result.output
     data = json.loads(result.output)
     assert isinstance(data, list)
@@ -329,4 +365,11 @@ def test_waiting_prints_the_same_counter_line(run, log_ok):
 
 def test_the_json_row_helper_matches_the_overview_query(run, log_ok):
     build_mixed(run, log_ok)
-    assert [list(row) for row in rows(run, "list", "--json")] == [OVERVIEW_JSON_KEYS] * 3
+    assert [list(row) for row in rows(run, "list", "--all", "--json")] == [OVERVIEW_JSON_KEYS] * 3
+
+
+def test_list_json_follows_the_default_view(run, log_ok):
+    build_mixed(run, log_ok)
+    assert [row["company"] for row in rows(run, "list", "--json")] == [
+        "Quiet AG", "Replied GmbH"]
+    assert [row["company"] for row in rows(run, "list", "--closed", "--json")] == ["Closed KG"]

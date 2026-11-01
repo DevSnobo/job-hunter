@@ -387,14 +387,30 @@ def render_overview_summary(summary: dict, *, shown: int | None = None) -> None:
     console.print(line, highlight=False)
 
 
+def render_hidden_closed(count: int) -> None:
+    """Say how many closed applications the default list view left out.
+
+    Closed applications (rejected, withdrawn, ...) stay in the tracker and in
+    the counters; only the table leaves them out until they are asked for.
+    """
+    if count <= 0:
+        return
+    noun = "application" if count == 1 else "applications"
+    console.print(f"[dim]{count} closed {noun} hidden \u00b7 "
+                  f"[bold]job list --all[/bold] includes them[/dim]")
+
+
 def render_applications(rows: Sequence[object], *, title: str = "Applications",
-                        summary: dict | None = None) -> None:
+                        summary: dict | None = None, hidden: int = 0) -> None:
     """The application overview table plus its legend and counters.
 
     ``summary`` is the counter block from ``reporting.overview_summary`` for
     exactly these rows; it also tells the table which in_progress applications
     already have an employer response. Pass it wherever a table is printed for a
     human reader (the human path only: --json output never reaches this).
+
+    ``hidden`` is the number of closed applications the caller left out of the
+    table; it only adds the hint that says how to see them.
     """
     rows = _overview_order(rows)
     answered_ids = frozenset() if summary is None else summary["answered_ids"]
@@ -427,6 +443,7 @@ def render_applications(rows: Sequence[object], *, title: str = "Applications",
         )
     if summary is not None:
         render_overview_summary(summary, shown=len(rows))
+    render_hidden_closed(hidden)
     console.print("[dim]Use the short id or a company/role name with show/edit/log.[/dim]")
 
 
